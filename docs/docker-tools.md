@@ -18,6 +18,7 @@ From this repository on macOS:
 
 ```bash
 ./scripts/build-docker-tools.sh
+./bin/run-smoke-test.sh
 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
 ```
@@ -48,6 +49,19 @@ IR interpreter and LLVM JIT, IR conversion/optimization, pipelined Verilog,
 slang array ports with a SAT proof, ABC cell mapping, OpenSTA timing/power,
 stdin, output files, exit statuses, and parent-directory mounts. Logs,
 generated artifacts, and `results.json` are retained in the output directory.
+
+## XLS smoke test
+
+Run `./bin/run-smoke-test.sh` from this checkout, or invoke that launcher by
+absolute path from another directory. It runs `tests/smoke/simple_add.x`
+through DSLX tests and quickchecks, both IR evaluators, IR optimization,
+and Verilog generation in one Docker container. It does not build the image;
+use the build command above first if the image is unavailable.
+
+The source fixture and smoke-test scripts live in this toolchain project.
+Generated IR, Verilog, the module signature, and the test log are written
+under `build/simple_add/`. The standalone `test-docker-tools.py` integration
+suite additionally exercises Yosys, ABC, OpenSTA, and launcher behavior.
 
 ## Use from any project
 

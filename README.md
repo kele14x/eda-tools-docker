@@ -11,9 +11,10 @@ tool documentation, and integration tests.
 xls-tools/
 ├── Dockerfile        # Ubuntu 24.04 amd64 runtime image
 ├── docker/           # Image entrypoint and Mac Docker launchers
-├── bin/              # Direct OrbStack VM / Linux launchers
+├── bin/              # VM / Linux launchers and Docker smoke test
 ├── config/tools/     # Pinned versions, build options, and checksums
 ├── scripts/          # Image build, test, and launcher installation
+├── tests/smoke/      # Small DSLX toolchain smoke-test fixture
 ├── tests/tools/      # OpenSTA activity integration tests
 ├── docs/             # Docker usage and source rebuild instructions
 ├── tools/            # Installed runtimes and libraries (ignored)
@@ -27,6 +28,7 @@ With OrbStack running, execute from this folder:
 
 ```bash
 ./scripts/build-docker-tools.sh
+./bin/run-smoke-test.sh
 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
 ```
@@ -50,6 +52,21 @@ OpenSTA, and `/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`.
 Select another image using `EDA_IMAGE`, another Docker context using
 `EDA_DOCKER_CONTEXT`, or a common parent mount using `EDA_PROJECT_ROOT`.
 See [the Docker guide](docs/docker-tools.md) for full usage and sharing.
+
+## XLS smoke test
+
+Run `./bin/run-smoke-test.sh` to check the existing Docker image with the
+small adder in `tests/smoke/simple_add.x`. The launcher works from any
+directory and runs the whole flow in one amd64 container. It uses this
+checkout's Docker launcher and does not require globally installed wrappers.
+
+The test checks addition, zero, overflow, and 100 commutativity cases with
+seed 42 using the DSLX interpreter, IR interpreter, and LLVM JIT. It then
+converts and optimizes XLS IR and generates one-stage pipelined Verilog and
+a module signature. Artifacts and `smoke-test.log` go to `build/simple_add/`.
+With the default input/output registers, the signature reports latency two
+and initiation interval one. Select another image or context using
+`EDA_IMAGE` or `EDA_DOCKER_CONTEXT`.
 
 ## Pinned installations
 
