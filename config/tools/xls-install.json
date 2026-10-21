@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/google/xls",
+  "release": "v0.0.0-10788-g6e55d7763",
+  "release_url": "https://github.com/google/xls/releases/tag/v0.0.0-10788-g6e55d7763",
+  "platform": "linux-x64",
+  "archive": "xls-v0.0.0-10788-g6e55d7763-linux-x64.tar.gz",
+  "download_url": "https://github.com/google/xls/releases/download/v0.0.0-10788-g6e55d7763/xls-v0.0.0-10788-g6e55d7763-linux-x64.tar.gz",
+  "archive_size_bytes": 104488356,
+  "sha256": "d828a13c841a9f45669bc4dea0e73553a9bc786a69fbc0ab0dc3ca9b26e1f5fc",
+  "installed_directory": "tools/xls-v0.0.0-10788-g6e55d7763-linux-x64",
+  "default_vm": "ubuntu24"
+}

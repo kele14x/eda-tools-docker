@@ -1,0 +1,49 @@
+{
+  "repository": "https://github.com/The-OpenROAD-Project/OpenSTA",
+  "version": "3.1.0",
+  "commit": "d1e43c6f9f4e66cb59c3d7958a4aa7d1626b4614",
+  "commit_date": "2026-09-28T22:31:51Z",
+  "variant": "upstream",
+  "platform": "linux-x64",
+  "archive": "opensta-3.1.0-gd1e43c6f9f4e-source.tar.gz",
+  "download_url": "https://codeload.github.com/The-OpenROAD-Project/OpenSTA/tar.gz/d1e43c6f9f4e66cb59c3d7958a4aa7d1626b4614",
+  "archive_size_bytes": 95388901,
+  "sha256": "bd0ca21b8d7f99862e8305c144b5d20117dcc20dd67198a5789878ddcb5054f9",
+  "patches": [],
+  "installed_directory": "tools/opensta-3.1.0-gd1e43c6f9f4e-linux-x64",
+  "source_directory": "build/tools/opensta/source",
+  "build_directory": "build/tools/opensta/build",
+  "binary": "tools/opensta/sta",
+  "binary_sha256": "1a73a323e2cb7bf1ad2b95ef281e0665ff67396807559eb21957abc39a205f95",
+  "default_vm": "ubuntu24",
+  "build_dependencies": {
+    "apt": [
+      "cmake",
+      "g++",
+      "make",
+      "git",
+      "bison",
+      "flex",
+      "swig",
+      "tcl8.6-dev",
+      "zlib1g-dev",
+      "libeigen3-dev"
+    ],
+    "cudd": {
+      "repository": "https://github.com/cuddorg/cudd",
+      "version": "3.0.0",
+      "commit": "f54f533303640afd5dbe47a05ebeabb3066f2a25",
+      "archive": "cudd-3.0.0-gf54f53330364-source.tar.gz",
+      "archive_size_bytes": 1169539,
+      "sha256": "b8b7c8ec3bfb8c7200639eba0da1293c672259a4812c7aeca5152d88151e67ca",
+      "archive_method": "git archive --format=tar.gz --prefix=cudd-3.0.0-gf54f53330364/ f54f533303640afd5dbe47a05ebeabb3066f2a25",
+      "source_directory": "build/tools/cudd/source",
+      "linkage": "static"
+    }
+  },
+  "cmake_options": {
+    "CMAKE_BUILD_TYPE": "Release",
+    "USE_TCL_READLINE": false,
+    "BUILD_TESTS": false
+  }
+}

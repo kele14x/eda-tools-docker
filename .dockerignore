@@ -1,0 +1,19 @@
+# Only the pinned runtime installations and image support files enter the build.
+**
+!Dockerfile
+!.dockerignore
+!docker/
+!docker/entrypoint.sh
+!docker/verify-installations.py
+!config/
+!config/tools/
+!config/tools/*.json
+!tools/
+!tools/xls-v0.0.0-10788-g6e55d7763-linux-x64/
+!tools/xls-v0.0.0-10788-g6e55d7763-linux-x64/**
+!tools/yosys-0.69-linux-x64/
+!tools/yosys-0.69-linux-x64/**
+!tools/opensta-3.1.0-gd1e43c6f9f4e-linux-x64/
+!tools/opensta-3.1.0-gd1e43c6f9f4e-linux-x64/**
+!tools/nangate45-8d540a4d4cf6/
+!tools/nangate45-8d540a4d4cf6/**

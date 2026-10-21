@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.
+set -euo pipefail
+
+if [[ $# -eq 0 || "$1" == --help || "$1" == -h ]]; then
+    cat >&2 <<'USAGE'
+Usage: eda <command> [arguments...]
+Examples: eda yosys -V
+          eda xls interpreter_main src/design.x
+          eda bash
+Environment: EDA_IMAGE, EDA_DOCKER_CONTEXT, EDA_PROJECT_ROOT
+USAGE
+    if [[ $# -eq 0 ]]; then exit 2; else exit 0; fi
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo 'Docker CLI not found. Install and start OrbStack.' >&2
+    exit 127
+fi
+
+work_dir="$(pwd -P)"
+mount_dir="$(cd -- "${EDA_PROJECT_ROOT:-$work_dir}" && pwd -P)"
+case "$work_dir/" in
+    "${mount_dir%/}/"*) ;;
+    *) echo "EDA_PROJECT_ROOT must contain the current directory: $work_dir" >&2; exit 2 ;;
+esac
+
+docker_args=(run --rm --init --platform linux/amd64
+    --user "$(id -u):$(id -g)"
+    --mount "type=bind,source=$mount_dir,target=$mount_dir"
+    --workdir "$work_dir")
+if [[ -t 0 && -t 1 ]]; then
+    docker_args+=(-it)
+else
+    docker_args+=(-i)
+fi
+
+exec docker --context "${EDA_DOCKER_CONTEXT:-orbstack}" \
+    "${docker_args[@]}" "${EDA_IMAGE:-local/eda-tools:v1}" "$@"

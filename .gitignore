@@ -1,0 +1,8 @@
+# Downloaded and built runtimes; manifests remain versioned.
+/tools/
+/downloads/
+/build/
+__pycache__/
+*.py[cod]
+.DS_Store
+._*

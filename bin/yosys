@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+toolchain_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+tool="$toolchain_dir/tools/yosys/bin/yosys"
+if [[ ! -x "$tool" ]]; then
+    echo "Yosys not found: $tool. See xls-tools/docs/yosys.md for build instructions." >&2
+    exit 2
+fi
+
+if [[ "$(uname -s)" == Darwin ]]; then
+    exec orb -m "${YOSYS_VM:-ubuntu24}" -w "$(pwd -P)" "$tool" "$@"
+fi
+exec "$tool" "$@"
