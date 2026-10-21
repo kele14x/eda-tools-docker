@@ -83,9 +83,8 @@ OPENSTA_TEST_BINARY="$PWD/docker/bin/sta" \
 
 ## Existing xls-test project
 
-The sibling `xls-test` project retains compatibility links for `tools/` and
-`config/tools/`, plus forwarding `bin/xls`, `bin/yosys`, and `bin/sta` launchers.
-Its hardware designs, design tests, and design build outputs stay there.
-Tool binaries, metadata, and Docker infrastructure have a single home here.
-Keep the two checkouts as siblings when using those compatibility paths.
-New projects can use the installed Docker commands directly.
+The `xls-test` project consumes the installed Docker toolchain through small
+project launchers. Its PPA flows extract manifests, binary checksums, and
+Nangate45 analysis data from the selected image into `build/toolchain/`.
+It has no tool installation symlinks or runtime dependency on this checkout.
+Hardware designs, verification, and design build outputs remain in `xls-test`.
