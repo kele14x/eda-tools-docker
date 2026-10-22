@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts",
+  "commit": "31ae82dc3149d5e66386317d564f47c672ddb1d8",
+  "source_path": "flow/platforms/nangate45",
+  "installed_directory": "tools/nangate45-physical-31ae82dc3149",
+  "stable_directory": "tools/nangate45-physical",
+  "download_directory": "downloads/nangate45-physical-31ae82dc3149",
+  "liberty_sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1",
+  "files": {
+    "lef/NangateOpenCellLibrary.tech.lef": "834a79295054cd4209178d1bade67c353863c47bb4b3c22ee38b862b7cec37f2",
+    "lef/NangateOpenCellLibrary.macro.mod.lef": "a43aea339f12a57a63497783e508ba16f3da2dc056d3247dec7d99707c2dedef",
+    "setRC.tcl": "521df813bf4da9d7400df33e3f680c9a328cc720830dbfca1188083741503fa5",
+    "rcx_patterns.rules": "2f65fafbe2c704b378563c53a680b93cef080c2799997019d43df7d1e5a563e9",
+    "LICENSE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+  }
+}

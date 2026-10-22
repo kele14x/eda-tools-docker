@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-toolchain_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-tool="$toolchain_dir/tools/opensta/sta"
-if [[ ! -x "$tool" ]]; then
-    echo "OpenSTA not found: $tool" >&2
-    exit 2
-fi
-
-if [[ "$(uname -s)" == Darwin ]]; then
-    exec orb -m "${OPENSTA_VM:-ubuntu24}" -w "$(pwd -P)" "$tool" "$@"
-fi
-exec "$tool" "$@"
+# Compatibility command: OpenSTA is embedded in OpenROAD.
+export OPENROAD_VM="${OPENSTA_VM:-${OPENROAD_VM:-ubuntu24}}"
+exec "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/openroad" "$@"

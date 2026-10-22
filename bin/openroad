@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+toolchain_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+tool="$toolchain_dir/tools/openroad/bin/openroad"
+if [[ ! -x "$tool" ]]; then
+    echo "OpenROAD not found: $tool; run python3 scripts/install-openroad.py" >&2
+    exit 2
+fi
+
+if [[ "$(uname -s)" == Darwin ]]; then
+    exec orb -m "${OPENROAD_VM:-ubuntu24}" -w "$(pwd -P)" "$tool" "$@"
+fi
+exec "$tool" "$@"

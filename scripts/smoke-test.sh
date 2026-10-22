@@ -37,5 +37,35 @@ xls codegen_main --pipeline_stages=1 --delay_model=unit \
     "$output_dir/simple_add.opt.ir" > "$output_dir/simple_add.v"
 test -s "$output_dir/simple_add.v"
 
-echo "PASS: DSLX tests, IR interpreter, LLVM JIT, and Verilog generation"
+echo "Mapping the XLS-generated adder to Nangate45 cells"
+cp "$project_dir/tests/smoke/simple_add.sdc" "$output_dir/simple_add.sdc"
+(
+    cd "$output_dir"
+    cat > synth.ys <<YOSYS
+read_liberty -lib "$NANGATE45_LIBERTY"
+read_verilog simple_add.v
+synth -top simple_add
+dfflibmap -liberty "$NANGATE45_LIBERTY"
+abc -liberty "$NANGATE45_LIBERTY"
+hilomap -singleton -hicell LOGIC1_X1 Z -locell LOGIC0_X1 Z
+clean
+check -assert
+stat -liberty "$NANGATE45_LIBERTY"
+write_verilog -noattr -noexpr simple_add.mapped.v
+YOSYS
+    yosys -Q -T -l synthesis.log -s synth.ys
+    echo "Placing and routing the adder and its clock tree with OpenROAD"
+    openroad -no_init -no_splash -exit -threads 2 \
+        "$project_dir/tests/smoke/route-adder.tcl" 2>&1 | tee openroad.log
+    grep -Fxq 'OPENROAD_ROUTING_PASS DRC=0' openroad.log
+    for artifact in placed.def placed.odb routed.def routed.odb routed.v routed.sdc route.guide; do
+        test -s "$artifact"
+    done
+    echo "Reloading the routed database and checking its cells and wires"
+    openroad -no_init -no_splash -exit -threads 2 \
+        "$project_dir/tests/smoke/check-routed-adder.tcl" 2>&1 | tee routed-reload.log
+    grep -Fxq 'OPENROAD_ROUTED_RELOAD_PASS' routed-reload.log
+)
+
+echo "PASS: XLS tests, Verilog generation, Nangate45 mapping, placement, and routing"
 echo "Outputs: $output_dir"

@@ -1,5 +1,6 @@
-"""Verify the installed analyzer retains measured cell and gated-clock activity."""
+"""Verify OpenROAD's embedded OpenSTA retains measured pin and clock activity."""
 
+import json
 import os
 import re
 import subprocess
@@ -9,7 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LIBRARY = ROOT / "tools/nangate45/NangateOpenCellLibrary_typical.lib"
-ANALYZER = Path(os.environ.get("OPENSTA_TEST_BINARY", ROOT / "bin/sta")).resolve()
+ANALYZER = Path(os.environ.get("OPENROAD_TEST_BINARY", ROOT / "bin/openroad")).resolve()
+PLATFORM = ROOT / "tools/nangate45-physical"
+STA_VERSION = json.loads((ROOT / "config/tools/openroad-install.json").read_text())["embedded_opensta"]["version"]
 
 NETLIST = '''module power_probe(input clk, en, d, output q, z);
   wire gated_clk;
@@ -29,7 +32,10 @@ class OpenSTAActivityTest(unittest.TestCase):
             netlist = folder / "probe.v"
             script = folder / "probe.tcl"
             netlist.write_text(NETLIST)
-            script.write_text(f'''read_liberty {{{LIBRARY}}}
+            script.write_text(f'''read_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.tech.lef"}}}
+read_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.macro.mod.lef"}}}
+read_liberty {{{LIBRARY}}}
+puts "EMBEDDED_OPENSTA_VERSION [sta::version]"
 read_verilog {{{netlist}}}
 link_design power_probe
 create_clock -name clk -period 2 [get_ports clk]
@@ -48,7 +54,8 @@ foreach pin {{probe/Z gate/GCK}} {{
                                     cwd=ROOT, text=True, capture_output=True, timeout=60)
             log = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, log)
-            self.assertNotRegex(log, r"(?m)^Error:")
+            self.assertNotRegex(log, r"(?m)^(?:Error:|\[ERROR)")
+            self.assertIn(f"EMBEDDED_OPENSTA_VERSION {STA_VERSION}", log)
             self.assertRegex(log, r"(?m)^Total\s+\S+\s+\S+\s+\S+\s+\S+")
             observed = {}
             for pin, density, duty, origin in re.findall(

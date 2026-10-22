@@ -12,7 +12,7 @@ marker='# Managed by xls-tools Docker tools; installed by scripts/install-docker
 legacy_marker='# Managed by xls-test Docker tools; installed by scripts/install-docker-tools.sh.'
 
 # Preflight every destination before changing any installed commands.
-for tool in eda xls yosys sta; do
+for tool in eda xls yosys sta openroad; do
     destination="$bin_dir/$tool"
     if [[ -e "$destination" || -L "$destination" ]]; then
         if [[ -L "$destination" || ! -f "$destination" ]] || ! grep -Fqx -e "$marker" -e "$legacy_marker" "$destination"; then
@@ -23,10 +23,10 @@ for tool in eda xls yosys sta; do
 done
 
 mkdir -p "$bin_dir"
-for tool in eda xls yosys sta; do
+for tool in eda xls yosys sta openroad; do
     install -m 755 "$project_dir/docker/bin/$tool" "$bin_dir/$tool"
 done
-echo "Installed eda, xls, yosys, and sta in $bin_dir"
+echo "Installed eda, xls, yosys, sta, and openroad in $bin_dir"
 case ":$PATH:" in
     *":$bin_dir:"*) ;;
     *) echo "Add $bin_dir to PATH in your shell configuration." ;;

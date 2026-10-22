@@ -5,6 +5,8 @@ import json
 import struct
 from pathlib import Path
 
+from runtime_checksums import tree_sha256
+
 ROOT = Path('/opt/eda')
 
 
@@ -20,14 +22,23 @@ def verify(relative_path, expected):
 for manifest_name, checks in (
     ('yosys', (('yosys/bin/yosys', 'binary_sha256'),
                ('yosys/bin/yosys-abc', 'abc_binary_sha256'))),
-    ('opensta', (('opensta/sta', 'binary_sha256'),)),
+    ('openroad', (('openroad/bin/openroad', 'binary_sha256'),)),
     ('nangate45', (('nangate45/NangateOpenCellLibrary_typical.lib', 'sha256'),)),
 ):
     manifest = json.loads((ROOT / 'manifests' / f'{manifest_name}-install.json').read_text())
     for filename, key in checks:
         verify(filename, manifest[key])
 
-for path in [*(ROOT / 'xls').iterdir(), *(ROOT / 'yosys/bin').iterdir(), ROOT / 'opensta/sta']:
+manifest = json.loads((ROOT / 'manifests/openroad-install.json').read_text())
+if tree_sha256(ROOT / 'openroad') != manifest['runtime_tree_sha256']:
+    raise SystemExit('SHA-256 mismatch: OpenROAD runtime tree')
+physical = json.loads((ROOT / 'manifests/nangate45-physical-install.json').read_text())
+for filename, expected in physical['files'].items():
+    verify('nangate45-physical/' + filename, expected)
+verify('nangate45/NangateOpenCellLibrary_typical.lib', physical['liberty_sha256'])
+
+for path in [*(ROOT / 'xls').iterdir(), *(ROOT / 'yosys/bin').iterdir(),
+             ROOT / 'openroad/bin/openroad']:
     if not path.is_file():
         continue
     with path.open('rb') as handle:
