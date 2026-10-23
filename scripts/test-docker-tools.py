@@ -57,6 +57,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'docker/bin')
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'build/docker-tools')
+    parser.add_argument('--expected-architecture', choices=['amd64', 'arm64'],
+                        help='Require this image architecture (otherwise accept either).')
     args = parser.parse_args()
     bin_dir = args.bin_dir.expanduser().resolve()
     output = args.output_dir.expanduser().resolve()
@@ -90,10 +92,15 @@ def main():
         try:
             metadata = json.loads(run('image', ['docker', '--context', context, 'image', 'inspect',
                                                 image, '--format', '{{json .}}']))
-            assert metadata['Architecture'] == 'amd64', metadata['Architecture']
+            expected_arch = args.expected_architecture or environment.get('EDA_PLATFORM', '').removeprefix('linux/')
+            assert metadata['Architecture'] in ('amd64', 'arm64'), metadata['Architecture']
+            if expected_arch:
+                assert metadata['Architecture'] == expected_arch, metadata['Architecture']
             assert metadata['Os'] == 'linux', metadata['Os']
             report['image_id'] = metadata['Id']
             report['architecture'] = metadata['Architecture']
+            run('installation-checksums-and-architecture', [bin_dir / 'eda', 'python3',
+                '/opt/eda/verify-installations.py'])
             run('xls-version', [bin_dir / 'xls', 'interpreter_main', '--version'])
             run('yosys-version', [bin_dir / 'yosys', '-V'])
             run('sta-version', [bin_dir / 'sta', '-version'])
@@ -106,15 +113,29 @@ def main():
                 'test "$(readlink -f /usr/local/bin/sta)" = /opt/eda/openroad/bin/openroad'])
             linkage = run('shared-libraries', [bin_dir / 'eda', 'python3', '-c', '''
 from pathlib import Path
+import struct
 import subprocess
 for path in [*Path('/opt/eda/xls').iterdir(), *Path('/opt/eda/yosys/bin').iterdir(), Path('/opt/eda/openroad/bin/openroad')]:
     if not path.is_file():
         continue
     with path.open('rb') as handle:
-        is_elf = handle.read(4) == b'\\x7fELF'
-    if is_elf:
+        header = handle.read(64)
+        if header[:4] != b'\\x7fELF':
+            continue
         print(path, flush=True)
-        subprocess.run(['/lib64/ld-linux-x86-64.so.2', '--list', str(path)], check=True)
+        assert header[4:6] == b'\\x02\\x01', path
+        offset = struct.unpack_from('<Q', header, 32)[0]
+        size, count = struct.unpack_from('<HH', header, 54)
+        for index in range(count):
+            handle.seek(offset + index * size)
+            entry = handle.read(size)
+            if struct.unpack_from('<I', entry)[0] == 3:  # PT_INTERP
+                handle.seek(struct.unpack_from('<Q', entry, 8)[0])
+                loader = handle.read(struct.unpack_from('<Q', entry, 32)[0]).rstrip(b'\\0').decode()
+                subprocess.run([loader, '--list', str(path)], check=True)
+                break
+        else:
+            print('Statically linked; no dynamic loader required')
 '''])
             assert 'not found' not in linkage, linkage
 

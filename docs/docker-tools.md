@@ -1,5 +1,10 @@
 # Shared Docker tools on macOS
 
+Apple Silicon can use the native source image: see [ARM64 Docker](arm64-docker.md).
+Build it with `EDA_PLATFORM=linux/arm64 ./scripts/build-docker-tools.sh`,
+then select it with `EDA_IMAGE=local/eda-tools:arm64`. The launchers support
+both architectures; reinstall older copies that force AMD64.
+
 The root `Dockerfile` packages the existing pinned Linux amd64 installations
 on Ubuntu 24.04. It includes XLS and the DSLX standard library, Yosys 0.69
 with slang and ABC, OpenROAD `26Q4-878-g273fa45460` with embedded OpenSTA 3.1.0, and
@@ -160,12 +165,14 @@ then install the launchers there and set `EDA_IMAGE` to that registry tag or
 digest. Projects can pin a digest for an immutable tool selection. No image
 is published by the build or installation scripts.
 
-The current image packages already-built binaries, rather than rebuilding
-them from source. To update a tool, rebuild or download the desired amd64
+The default AMD64 image packages already-built binaries. To update a tool
+in that image, rebuild or download the desired amd64
 installation, update its manifest, update the explicit versioned paths in
 `Dockerfile` and `.dockerignore`, and build and test a new tag. The Ubuntu
 base tag and runtime package versions can receive updates between builds;
 pin a base digest and package snapshot if rebuilds must be identical.
+The ARM64 image builds the pinned tool sources inside Docker as described in
+the [native build guide](arm64-docker.md).
 
 To uninstall the Mac launchers, remove `eda`, `xls`, `yosys`, `sta`, and `openroad` from
 the chosen installation directory. This does not remove the Docker image.

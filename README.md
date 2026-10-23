@@ -1,6 +1,6 @@
 # XLS Tools
 
-Shared Linux amd64 installations of Google XLS, Yosys with slang/ABC,
+Shared Linux installations of Google XLS, Yosys with slang/ABC,
 OpenROAD with embedded OpenSTA, and Nangate45 timing/physical libraries. This project owns
 the tool binaries, download cache, installation manifests, Docker image, launchers,
 tool documentation, and integration tests.
@@ -23,6 +23,24 @@ xls-tools/
 ```
 
 ## Docker on macOS
+
+For Apple Silicon, build a native Linux ARM64 image from the pinned sources:
+
+```bash
+EDA_PLATFORM=linux/arm64 ./scripts/build-docker-tools.sh --progress=plain
+export EDA_IMAGE=local/eda-tools:arm64
+python3 scripts/test-docker-tools.py --expected-architecture arm64 \
+  --output-dir build/docker-tools-arm64
+./bin/run-smoke-test.sh
+./scripts/install-docker-tools.sh
+```
+
+The first source build is substantial; see [ARM64 Docker](docs/arm64-docker.md)
+for memory controls, caching, provenance, and image selection. Keep `EDA_IMAGE`
+set to select the native image. Reinstall existing launchers to remove their
+old AMD64 constraint.
+
+To package the existing AMD64 binaries instead:
 
 With OrbStack running, execute from this folder:
 
@@ -60,7 +78,7 @@ See [the Docker guide](docs/docker-tools.md) for full usage and sharing.
 
 Run `./bin/run-smoke-test.sh` to check the existing Docker image with the
 small adder in `tests/smoke/simple_add.x`. The launcher works from any
-directory and runs the whole flow in one amd64 container. It uses this
+directory and runs the whole flow in one container using the selected image. It uses this
 checkout's Docker launcher and does not require globally installed wrappers.
 
 The test checks addition, zero, overflow, and 100 commutativity cases with

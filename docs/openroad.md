@@ -1,5 +1,9 @@
 # OpenROAD toolchain
 
+For native Apple Silicon execution, [build the Linux ARM64 source image](arm64-docker.md).
+It builds the same pinned OpenROAD/OpenSTA sources inside Docker. The installation
+instructions below describe the existing AMD64 binary image.
+
 OpenROAD `26Q4-878-g273fa45460` is pinned to upstream commit
 [`273fa45460509e46b8255684622a5da33a1c8731`](https://github.com/The-OpenROAD-Project/OpenROAD/commit/273fa45460509e46b8255684622a5da33a1c8731)
 from October 22, 2026. This is an upstream development snapshot, packaged from

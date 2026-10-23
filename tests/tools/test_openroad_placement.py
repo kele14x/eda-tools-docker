@@ -13,6 +13,58 @@ PLATFORM = ROOT / "tools/nangate45-physical"
 
 
 class OpenROADPlacementTest(unittest.TestCase):
+    def test_lef_comment_at_eof(self):
+        scratch = ROOT / "build/tests"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="openroad lef eof ", dir=scratch) as temporary:
+            folder = Path(temporary).resolve()
+            tech = (PLATFORM / "lef/NangateOpenCellLibrary.tech.lef").read_bytes()
+            (folder / "read.tcl").write_text('''read_lef tech.lef
+if {[[ord::get_db_tech] findLayer metal1] eq "NULL"} { error "Missing metal1" }
+puts OPENROAD_LEF_EOF_PASS
+''')
+            for ending in (b"\n", b""):
+                with self.subTest(ending=ending):
+                    (folder / "tech.lef").write_bytes(tech + b"\n# trailing comment" + ending)
+                    result = subprocess.run(
+                        [str(OPENROAD), "-no_init", "-exit", "-threads", "1", "read.tcl"],
+                        cwd=folder, capture_output=True, text=True, timeout=30)
+                    log = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 0, log)
+                    self.assertNotRegex(log, r"(?m)^(?:Error:|\[ERROR)")
+                    self.assertIn("OPENROAD_LEF_EOF_PASS", log)
+
+    def test_def_comment_at_eof(self):
+        scratch = ROOT / "build/tests"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="openroad def eof ", dir=scratch) as temporary:
+            folder = Path(temporary).resolve()
+            (folder / "tech.lef").write_bytes(
+                (PLATFORM / "lef/NangateOpenCellLibrary.tech.lef").read_bytes())
+            design = b'''VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+DESIGN eof_probe ;
+UNITS DISTANCE MICRONS 2000 ;
+DIEAREA ( 0 0 ) ( 10000 10000 ) ;
+END DESIGN
+# trailing comment'''
+            (folder / "read.tcl").write_text('''read_lef tech.lef
+read_def probe.def
+if {[[ord::get_db_block] getName] ne "eof_probe"} { error "Wrong design" }
+puts OPENROAD_DEF_EOF_PASS
+''')
+            for ending in (b"\n", b""):
+                with self.subTest(ending=ending):
+                    (folder / "probe.def").write_bytes(design + ending)
+                    result = subprocess.run(
+                        [str(OPENROAD), "-no_init", "-exit", "-threads", "1", "read.tcl"],
+                        cwd=folder, capture_output=True, text=True, timeout=30)
+                    log = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 0, log)
+                    self.assertNotRegex(log, r"(?m)^(?:Error:|\[ERROR)")
+                    self.assertIn("OPENROAD_DEF_EOF_PASS", log)
+
     def test_placement_and_database_reload(self):
         scratch = ROOT / "build/tests"
         scratch.mkdir(parents=True, exist_ok=True)

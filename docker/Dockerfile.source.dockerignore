@@ -1,0 +1,13 @@
+# A source build needs no host binaries, downloads, or installed PDK files.
+**
+!docker/
+!docker/Dockerfile.source
+!docker/build-source-tools.py
+!docker/install-build-deps.py
+!docker/openroad-parser-eof.patch
+!docker/entrypoint.sh
+!docker/runtime_checksums.py
+!docker/verify-installations.py
+!config/
+!config/tools/
+!config/tools/*.json

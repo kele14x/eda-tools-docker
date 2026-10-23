@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1
+# Build on the target CPU: linux/arm64 on Apple Silicon, without x86 emulation.
+FROM ubuntu:24.04 AS runtime-base
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates python3 libstdc++6 libgcc-s1 libffi8 libreadline8t64 \
+      libtomlplusplus3t64 tcl8.6 zlib1g libtinfo6 libxml2 \
+      libx11-6 libx11-xcb1 libsm6 libice6 libxcb1 libxcb-cursor0 libxcb-icccm4 \
+      libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render0 \
+      libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 \
+      libxcb-util1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 \
+      libfontconfig1 libxkbcommon0 libxkbcommon-x11-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base AS builder-base
+COPY docker/install-build-deps.py /opt/build/install-build-deps.py
+RUN DEBIAN_FRONTEND=noninteractive python3 /opt/build/install-build-deps.py \
+    && rm -rf /var/lib/apt/lists/*
+COPY config/tools/ /opt/eda/manifests/
+COPY docker/build-source-tools.py docker/runtime_checksums.py /opt/build/
+ARG TARGETARCH
+RUN --mount=type=cache,id=eda-bootstrap-cache,target=/var/cache/eda,sharing=locked \
+    python3 /opt/build/build-source-tools.py bootstrap "$TARGETARCH" \
+    && useradd --create-home --uid 1001 builder \
+    && mkdir -p /src /opt/eda \
+    && chown -R builder:builder /src /opt/eda
+USER builder
+WORKDIR /src
+ENV HOME=/home/builder
+
+# Serial stages keep OpenROAD, Yosys and LLVM from competing for RAM.
+# Cache mounts retain downloaded dependencies and compiled objects after failures.
+FROM builder-base AS openroad-build
+COPY docker/openroad-parser-eof.patch /opt/build/openroad-parser-eof.patch
+ARG BUILD_JOBS=4
+ARG OPENROAD_GUI=ON
+RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,gid=1001,sharing=locked \
+    python3 /opt/build/build-source-tools.py openroad "$BUILD_JOBS" "$OPENROAD_GUI"
+
+FROM openroad-build AS yosys-build
+ARG BUILD_JOBS=4
+RUN python3 /opt/build/build-source-tools.py yosys "$BUILD_JOBS"
+
+FROM yosys-build AS xls-build
+ARG BUILD_JOBS=4
+RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,gid=1001,sharing=locked \
+    python3 /opt/build/build-source-tools.py xls "$BUILD_JOBS"
+RUN python3 /opt/build/build-source-tools.py libraries
+
+FROM runtime-base AS runtime
+LABEL org.opencontainers.image.title="XLS, Yosys, and OpenROAD native source toolchain" \
+      org.opencontainers.image.description="Pinned tools compiled for the container architecture" \
+      org.opencontainers.image.version="v1-source"
+COPY --from=xls-build /opt/eda/ /opt/eda/
+COPY docker/verify-installations.py docker/runtime_checksums.py /opt/eda/
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/eda-entrypoint
+ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:${PATH}" \
+    NANGATE45_LIBERTY="/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib" \
+    NANGATE45_TECH_LEF="/opt/eda/nangate45-physical/lef/NangateOpenCellLibrary.tech.lef" \
+    NANGATE45_CELLS_LEF="/opt/eda/nangate45-physical/lef/NangateOpenCellLibrary.macro.mod.lef" \
+    NANGATE45_RC="/opt/eda/nangate45-physical/setRC.tcl" \
+    NANGATE45_RCX_RULES="/opt/eda/nangate45-physical/rcx_patterns.rules"
+RUN ln -s eda-entrypoint /usr/local/bin/xls \
+    && ln -s /opt/eda/openroad/bin/openroad /usr/local/bin/sta \
+    && python3 /opt/eda/verify-installations.py \
+    && xls interpreter_main --version && yosys -V && sta -version && openroad -version
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/eda-entrypoint"]
+CMD ["bash"]

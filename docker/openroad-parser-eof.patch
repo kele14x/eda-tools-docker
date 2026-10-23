@@ -1,0 +1,24 @@
+diff --git a/src/odb/src/lef/lef/lef_keywords.cpp b/src/odb/src/lef/lef/lef_keywords.cpp
+--- a/src/odb/src/lef/lef/lef_keywords.cpp
++++ b/src/odb/src/lef/lef/lef_keywords.cpp
+@@ -689,7 +689,7 @@
+ int lefsublex()
+ {
+-  char fc;
++  int fc;
+   char* outStr;
+ 
+   strcpy(lefData->pv_token, lefData->current_token);  // save the previous token
+ 
+diff --git a/src/odb/src/def/def/def_keywords.cpp b/src/odb/src/def/def/def_keywords.cpp
+--- a/src/odb/src/def/def/def_keywords.cpp
++++ b/src/odb/src/def/def/def_keywords.cpp
+@@ -529,7 +529,7 @@
+ int defrData::sublex(YYSTYPE* pYylval)
+ {
+-  char fc;
++  int fc;
+   double numVal;
+   char* outMsg;
+ 
+   pv_deftoken = (char*) realloc(pv_deftoken, deftokenLength);

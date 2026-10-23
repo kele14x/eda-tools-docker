@@ -8,7 +8,7 @@ Usage: eda <command> [arguments...]
 Examples: eda yosys -V
           eda xls interpreter_main src/design.x
           eda bash
-Environment: EDA_IMAGE, EDA_DOCKER_CONTEXT, EDA_PROJECT_ROOT
+Environment: EDA_IMAGE, EDA_PLATFORM, EDA_DOCKER_CONTEXT, EDA_PROJECT_ROOT
 USAGE
     if [[ $# -eq 0 ]]; then exit 2; else exit 0; fi
 fi
@@ -25,15 +25,27 @@ case "$work_dir/" in
     *) echo "EDA_PROJECT_ROOT must contain the current directory: $work_dir" >&2; exit 2 ;;
 esac
 
-docker_args=(run --rm --init --platform linux/amd64
+docker_context="${EDA_DOCKER_CONTEXT:-orbstack}"
+image="${EDA_IMAGE:-local/eda-tools:v1}"
+platform="${EDA_PLATFORM:-}"
+if [[ -z "$platform" ]]; then
+    # Suppress Docker's cross-architecture warning for an intentional AMD64
+    # image on Apple Silicon, without imposing AMD64 on a native image.
+    platform="$(docker --context "$docker_context" image inspect \
+        --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null || true)"
+fi
+docker_args=(run --rm --init
     --user "$(id -u):$(id -g)"
     --mount "type=bind,source=$mount_dir,target=$mount_dir"
     --workdir "$work_dir")
+if [[ -n "$platform" ]]; then
+    docker_args+=(--platform "$platform")
+fi
 if [[ -t 0 && -t 1 ]]; then
     docker_args+=(-it)
 else
     docker_args+=(-i)
 fi
 
-exec docker --context "${EDA_DOCKER_CONTEXT:-orbstack}" \
-    "${docker_args[@]}" "${EDA_IMAGE:-local/eda-tools:v1}" "$@"
+exec docker --context "$docker_context" \
+    "${docker_args[@]}" "$image" "$@"

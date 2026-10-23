@@ -10,7 +10,7 @@ port="${OPENROAD_VIEWER_PORT:-8080}"
 if [[ $# -gt 1 || ( $# -eq 1 && "$1" != --stop ) ]]; then
     echo "Usage: $0 [--stop]" >&2
     echo 'Default: view the routed smoke-test adder at http://localhost:8080.' >&2
-    echo 'Environment: EDA_IMAGE, EDA_DOCKER_CONTEXT, OPENROAD_VIEWER_PORT.' >&2
+    echo 'Environment: EDA_IMAGE, EDA_PLATFORM, EDA_DOCKER_CONTEXT, OPENROAD_VIEWER_PORT.' >&2
     if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then exit 0; else exit 2; fi
 fi
 if [[ ! "$port" =~ ^[0-9]+$ ]] || (( 10#$port < 1024 || 10#$port > 65535 )); then
@@ -38,13 +38,22 @@ for artifact in routed.def routed.sdc; do
     fi
 done
 
-"${docker_cmd[@]}" run --detach --rm --init --platform linux/amd64 \
+run_args=(run --detach --rm --init)
+image="${EDA_IMAGE:-local/eda-tools:v1}"
+platform="${EDA_PLATFORM:-}"
+if [[ -z "$platform" ]]; then
+    platform="$("${docker_cmd[@]}" image inspect --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null || true)"
+fi
+if [[ -n "$platform" ]]; then
+    run_args+=(--platform "$platform")
+fi
+"${docker_cmd[@]}" "${run_args[@]}" \
     --name "$container" --label "local.xls-tools.viewer=$marker" \
     --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$project_dir,target=$project_dir,readonly" \
     --workdir "$project_dir" \
     --publish "127.0.0.1:$port:8080" \
-    "${EDA_IMAGE:-local/eda-tools:v1}" openroad -no_init -no_splash -threads 2 \
+    "$image" openroad -no_init -no_splash -threads 2 \
     -web -web_port 8080 -web_bind 0.0.0.0 \
     "$project_dir/tests/smoke/view-adder.tcl" >/dev/null
 

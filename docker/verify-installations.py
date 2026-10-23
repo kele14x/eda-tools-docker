@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import platform
 import struct
 from pathlib import Path
 
@@ -37,6 +38,12 @@ for filename, expected in physical['files'].items():
     verify('nangate45-physical/' + filename, expected)
 verify('nangate45/NangateOpenCellLibrary_typical.lib', physical['liberty_sha256'])
 
+machine = platform.machine()
+expected_machine = {'x86_64': 62, 'aarch64': 183}[machine]
+xls_manifest = json.loads((ROOT / 'manifests/xls-install.json').read_text())
+for filename, expected in xls_manifest.get('binary_sha256', {}).items():
+    verify('xls/' + filename, expected)
+
 for path in [*(ROOT / 'xls').iterdir(), *(ROOT / 'yosys/bin').iterdir(),
              ROOT / 'openroad/bin/openroad']:
     if not path.is_file():
@@ -44,6 +51,6 @@ for path in [*(ROOT / 'xls').iterdir(), *(ROOT / 'yosys/bin').iterdir(),
     with path.open('rb') as handle:
         header = handle.read(20)
     if header[:4] == b'\x7fELF' and (
-        header[4:6] != b'\x02\x01' or struct.unpack_from('<H', header, 18)[0] != 62
+        header[4:6] != b'\x02\x01' or struct.unpack_from('<H', header, 18)[0] != expected_machine
     ):
-        raise SystemExit(f'Expected a little-endian x86-64 ELF executable: {path}')
+        raise SystemExit(f'Expected a little-endian {machine} ELF executable: {path}')
