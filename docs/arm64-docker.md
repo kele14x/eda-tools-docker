@@ -5,6 +5,9 @@ XLS, Yosys/slang/ABC, and OpenROAD/OpenSTA executables run on the Apple
 Silicon CPU without translating AMD64 instructions. It is not a macOS
 binary image. Removing translation may improve routing performance; the
 gain depends on the design, routing stage, thread count, and available RAM.
+Icarus Verilog and Verilator are installed as native Ubuntu packages in the
+final runtime stage, together with the C++ build tools needed for simulation.
+Changing these packages does not invalidate the expensive source-build stages.
 
 Build from this checkout with OrbStack running:
 
@@ -45,12 +48,13 @@ Reinstalling the launchers is necessary if the installed copies still force
 `--platform linux/amd64`. Updated launchers let Docker use the selected
 image's architecture. `EDA_PLATFORM` can explicitly constrain Docker's
 platform when needed, but selecting the image with `EDA_IMAGE` is enough.
-With no `EDA_IMAGE`, `eda`, `xls`, `yosys`, `sta`, and `openroad` select
+With no `EDA_IMAGE`, all Docker launchers, including `iverilog`, `vvp`, and `verilator`, select
 `local/eda-tools:arm64`. No shell configuration is required. Set `EDA_IMAGE`
 only when selecting a different toolchain.
 
 The integration test checks the image architecture, executable ELF headers,
-runtime checksums, dynamic linking, XLS's ARM64 LLVM JIT, slang and ABC,
+runtime checksums, dynamic linking, XLS's ARM64 LLVM JIT, Icarus and Verilator
+simulation of XLS-generated RTL, Verilator C++ compilation and tracing, slang and ABC,
 OpenSTA timing/power, placement, and database reload. The smoke test adds
 clock-tree synthesis and detailed routing with zero required DRC violations.
 Smoke-test outputs replace `build/simple_add/`; keep separate copies before
@@ -73,6 +77,8 @@ identities. Host AMD64 manifests and binaries remain intact. These output
 hashes describe this build; they are not prepublished upstream checksums.
 Ubuntu apt dependencies are resolved at build time, so the build is pinned
 at the tool-source level rather than bit-for-bit reproducible.
+Simulator and C++ toolchain package versions are recorded separately in
+`/opt/eda/manifests/simulation-packages.txt` inside the image.
 
 To build and select the optional AMD64 image from the host installations:
 

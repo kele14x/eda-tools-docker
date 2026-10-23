@@ -49,9 +49,18 @@ RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,
 RUN python3 /opt/build/build-source-tools.py libraries
 
 FROM runtime-base AS runtime
-LABEL org.opencontainers.image.title="XLS, Yosys, and OpenROAD native source toolchain" \
-      org.opencontainers.image.description="Pinned tools compiled for the container architecture" \
+LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator native toolchain" \
+      org.opencontainers.image.description="Native synthesis, simulation, timing, and physical design with Nangate45" \
       org.opencontainers.image.version="v1-source"
+# Keep simulator packages out of runtime-base to preserve the expensive source
+# build cache. C++ build tools are needed at runtime for Verilator simulations.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        iverilog verilator build-essential zlib1g-dev \
+    && mkdir -p /opt/eda/manifests \
+    && dpkg-query -W iverilog verilator build-essential g++ make perl zlib1g-dev \
+        > /opt/eda/manifests/simulation-packages.txt \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=xls-build /opt/eda/ /opt/eda/
 COPY docker/verify-installations.py docker/runtime_checksums.py /opt/eda/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/eda-entrypoint
@@ -64,7 +73,8 @@ ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:${PATH}" \
 RUN ln -s eda-entrypoint /usr/local/bin/xls \
     && ln -s /opt/eda/openroad/bin/openroad /usr/local/bin/sta \
     && python3 /opt/eda/verify-installations.py \
-    && xls interpreter_main --version && yosys -V && sta -version && openroad -version
+    && xls interpreter_main --version && yosys -V && sta -version && openroad -version \
+    && iverilog -V && vvp -V && verilator --version
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/eda-entrypoint"]
 CMD ["bash"]

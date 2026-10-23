@@ -9,13 +9,13 @@ if [[ $# -gt 1 || "${1:-}" == --help || "${1:-}" == -h ]]; then
 fi
 bin_dir="${1:-$HOME/.local/bin}"
 marker='# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.'
-legacy_marker='# Managed by xls-test Docker tools; installed by scripts/install-docker-tools.sh.'
+tools=(eda xls yosys sta openroad iverilog vvp verilator)
 
 # Preflight every destination before changing any installed commands.
-for tool in eda xls yosys sta openroad; do
+for tool in "${tools[@]}"; do
     destination="$bin_dir/$tool"
     if [[ -e "$destination" || -L "$destination" ]]; then
-        if [[ -L "$destination" || ! -f "$destination" ]] || ! grep -Fqx -e "$marker" -e "$legacy_marker" "$destination"; then
+        if [[ -L "$destination" || ! -f "$destination" ]] || ! grep -Fqx -e "$marker" "$destination"; then
             echo "Refusing to overwrite an unrelated command: $destination" >&2
             exit 1
         fi
@@ -23,10 +23,10 @@ for tool in eda xls yosys sta openroad; do
 done
 
 mkdir -p "$bin_dir"
-for tool in eda xls yosys sta openroad; do
+for tool in "${tools[@]}"; do
     install -m 755 "$project_dir/docker/bin/$tool" "$bin_dir/$tool"
 done
-echo "Installed eda, xls, yosys, sta, and openroad in $bin_dir"
+echo "Installed ${tools[*]} in $bin_dir"
 case ":$PATH:" in
     *":$bin_dir:"*) ;;
     *) echo "Add $bin_dir to PATH in your shell configuration." ;;

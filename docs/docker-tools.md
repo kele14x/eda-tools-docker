@@ -16,6 +16,14 @@ OpenROAD runtime contents and all pinned LEF/RC/license files are verified
 too. XLS's release archive checksum is recorded in its manifest; individual XLS executable
 checksums are not supplied by that manifest.
 
+Both variants also install Icarus Verilog (`iverilog` and `vvp`), Verilator,
+`build-essential`, and zlib development headers from Ubuntu 24.04. Keeping
+the C++ compiler and Make in the runtime image lets Verilator build executable
+simulations with `--binary` or `--cc --exe --build`. Package versions are
+recorded in `/opt/eda/manifests/simulation-packages.txt` during the build.
+These simulator packages use Ubuntu's versions, which may lag upstream releases;
+they are not source-pinned like XLS, Yosys, and OpenROAD.
+
 The binaries execute in OrbStack's Linux Docker environment. The Mac commands
 are Bash launchers, and also work from Python, Make, and IDEs when their
 installation directory is on `PATH`. A running OrbStack Docker engine is required.
@@ -32,8 +40,9 @@ python3 scripts/test-docker-tools.py
 ```
 
 Defaults are image `local/eda-tools:arm64`, Docker context `orbstack`, and
-installation directory `~/.local/bin`. The launcher installer copies five
-executable scripts (`eda`, `xls`, `yosys`, `sta`, and `openroad`); those scripts
+installation directory `~/.local/bin`. The launcher installer copies eight
+executable scripts (`eda`, `xls`, `yosys`, `sta`, `openroad`, `iverilog`, `vvp`,
+and `verilator`); those scripts
 do not reference this checkout, so moving the repository does not break the installed commands.
 It only replaces files marked as belonging to this setup, and refuses to
 overwrite unrelated commands. Re-run it after changing the launchers.
@@ -54,9 +63,13 @@ The integration checks create a temporary project outside this repository,
 including spaces in its path. They check the actual image architecture,
 dynamic libraries, DSLX stdlib imports, unit tests and quickchecks with the
 IR interpreter and LLVM JIT, IR conversion/optimization, pipelined Verilog,
+Icarus and Verilator simulation of that RTL (including overflow and VCD traces),
+Verilator lint and C++ compilation,
 slang array ports with a SAT proof, ABC cell mapping, OpenSTA timing/power,
 OpenROAD floorplanning/placement and DEF/OpenDB export/reload, stdin, output
-files, exit statuses, and parent-directory mounts. Logs, generated artifacts, and `results.json` are retained in the output directory.
+files, exit statuses, and parent-directory mounts. Verilator's compilation
+uses a separate temporary path without spaces, as required by its Makefiles.
+Logs, generated artifacts, and `results.json` are retained in the output directory.
 
 ## XLS-to-routing smoke test
 
@@ -103,6 +116,33 @@ and output redirection do not. Each invocation creates a disposable container.
 For flows containing many small commands, run the whole script with
 `eda bash scripts/flow.sh` to use one container.
 
+### RTL simulation and linting
+
+Compile a testbench with Icarus, then execute it with its `vvp` runtime:
+
+```bash
+iverilog -g2012 -s tb -o simulation.vvp src/design.sv tests/tb.sv
+vvp simulation.vvp
+```
+
+Lint RTL or compile a SystemVerilog testbench with Verilator:
+
+```bash
+verilator --lint-only --top-module top src/top.sv
+verilator --binary --timing --trace --top-module tb -j 2 src/design.sv tests/tb.sv
+eda ./obj_dir/Vtb
+```
+
+The generated executable is a Linux binary; run it through `eda` on macOS.
+Verilator's generated Makefiles require project/build paths without spaces.
+Use `$dumpfile`/`$dumpvars` in the testbench to write a VCD trace to the mounted
+project. Rebuild the image and rerun the launcher installer to add these commands
+to an existing installation. Upstream usage references:
+[Icarus compile/run workflow](https://steveicarus.github.io/iverilog/usage/getting_started.html)
+and [Verilator installation requirements](https://verilator.org/guide/latest/install.html).
+
+### Project paths and library inputs
+
 The launcher bind-mounts the current physical working directory at the same
 absolute path inside the container. Relative paths resolve from your current
 project; absolute paths under the mounted directory work as well. Output files
@@ -113,7 +153,7 @@ from a subdirectory, or using sibling projects or libraries, explicitly mount
 a common parent:
 
 ```bash
-EDA_PROJECT_ROOT=/Users/kele/Workspaces yosys -s synth.ys
+EDA_PROJECT_ROOT=/path/to/workspace yosys -s synth.ys
 ```
 
 `EDA_PROJECT_ROOT` must contain the current physical directory. The mounted
@@ -176,5 +216,6 @@ pin a base digest and package snapshot if rebuilds must be identical.
 The ARM64 image builds the pinned tool sources inside Docker as described in
 the [native build guide](arm64-docker.md).
 
-To uninstall the Mac launchers, remove `eda`, `xls`, `yosys`, `sta`, and `openroad` from
-the chosen installation directory. This does not remove the Docker image.
+To uninstall the Mac launchers, remove `eda`, `xls`, `yosys`, `sta`, `openroad`,
+`iverilog`, `vvp`, and `verilator` from the chosen installation directory.
+This does not remove the Docker image.

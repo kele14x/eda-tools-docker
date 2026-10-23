@@ -1,7 +1,8 @@
 # XLS Tools
 
 Shared Linux installations of Google XLS, Yosys with slang/ABC,
-OpenROAD with embedded OpenSTA, and Nangate45 timing/physical libraries. This project owns
+OpenROAD with embedded OpenSTA, and Nangate45 timing/physical libraries,
+plus Icarus Verilog and Verilator in Docker for RTL simulation and linting. This project owns
 the tool binaries, download cache, installation manifests, Docker image, launchers,
 tool documentation, and integration tests.
 
@@ -51,7 +52,8 @@ EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
 The optional AMD64 packaging build uses `local/eda-tools:amd64`.
-The launcher installer places `eda`, `xls`, `yosys`, `sta`, and `openroad`
+The launcher installer places `eda`, `xls`, `yosys`, `sta`, `openroad`,
+`iverilog`, `vvp`, and `verilator`
 in `~/.local/bin`. The installed commands
 preserve the calling project's working directory and do not depend on this checkout.
 Ensure that directory is on `PATH`; use `rehash` in an existing zsh after
@@ -64,11 +66,19 @@ xls interpreter_main src/design.x
 yosys -p 'read_slang --top top src/top.sv; synth -top top'
 sta -exit timing.tcl
 openroad -no_init -exit -threads 2 place.tcl
+iverilog -g2012 -s tb -o simulation.vvp src/design.sv tests/tb.sv
+vvp simulation.vvp
+verilator --lint-only --top-module top src/top.sv
 ```
 
 The image contains the DSLX standard library, Yosys runtime data and ABC,
 OpenROAD with embedded OpenSTA, `/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`,
 and the Nangate45 LEF/RC files under `/opt/eda/nangate45-physical/`.
+Both Docker variants include Ubuntu's Icarus Verilog (`iverilog`/`vvp`),
+Verilator, and a C++ compiler, Make, and zlib headers for building simulations.
+Simulator package versions are recorded at build time in
+`/opt/eda/manifests/simulation-packages.txt`; these packages follow Ubuntu
+24.04 repositories rather than pinned upstream source commits.
 Select another image using `EDA_IMAGE`, another Docker context using
 `EDA_DOCKER_CONTEXT`, or a common parent mount using `EDA_PROJECT_ROOT`.
 See [the Docker guide](docs/docker-tools.md) for full usage and sharing.
@@ -141,19 +151,12 @@ installation, VM dependencies, and physical library usage are covered in
 [OpenROAD](docs/openroad.md). The `sta` command forwards to OpenROAD; existing
 timing scripts need LEF inputs as described in [timing and power](docs/opensta.md).
 
-The standalone Docker test script covers all three tools from an unrelated
-temporary project, including placement of an XLS/Yosys-generated adder and
-OpenDB reload. To check OpenSTA activity and OpenROAD placement through Docker:
+The standalone Docker test script covers the toolchain from an unrelated
+temporary project, including simulation of XLS-generated RTL with both Icarus
+and Verilator, waveform output, placement of an XLS/Yosys-generated adder,
+and OpenDB reload. To check OpenSTA activity and OpenROAD placement through Docker:
 
 ```bash
 OPENROAD_TEST_BINARY="$PWD/docker/bin/openroad" \
   python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 ```
-
-## Existing xls-test project
-
-The `xls-test` project consumes the installed Docker toolchain through small
-project launchers. Its PPA flows extract manifests, binary checksums, and
-Nangate45 analysis data from the selected image into `build/toolchain/`.
-It has no tool installation symlinks or runtime dependency on this checkout.
-Hardware designs, verification, and design build outputs remain in `xls-test`.

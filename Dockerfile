@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
-LABEL org.opencontainers.image.title="XLS, Yosys, and OpenROAD toolchain" \
-      org.opencontainers.image.description="Pinned Linux amd64 tools with slang, ABC, DSLX stdlib, and Nangate45" \
+LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator toolchain" \
+      org.opencontainers.image.description="Linux amd64 synthesis, simulation, timing, and physical design with Nangate45" \
       org.opencontainers.image.version="v1"
 
 RUN test "$(dpkg --print-architecture)" = amd64 \
@@ -14,6 +14,16 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
         libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 \
         libxcb-util1 libxcb-xfixes0 libxcb-xkb1 libdbus-1-3 \
         libfontconfig1 libxkbcommon0 libxkbcommon-x11-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verilator compiles generated C++ when users build simulations, so the compiler
+# and development headers belong in the runtime image as well.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        iverilog verilator build-essential zlib1g-dev \
+    && mkdir -p /opt/eda/manifests \
+    && dpkg-query -W iverilog verilator build-essential g++ make perl zlib1g-dev \
+        > /opt/eda/manifests/simulation-packages.txt \
     && rm -rf /var/lib/apt/lists/*
 
 # Use the real versioned directories, rather than the host's convenience links.
@@ -40,7 +50,8 @@ RUN ln -s eda-entrypoint /usr/local/bin/xls \
     && xls interpreter_main --version \
     && yosys -V \
     && sta -version \
-    && openroad -version
+    && openroad -version \
+    && iverilog -V && vvp -V && verilator --version
 
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/eda-entrypoint"]

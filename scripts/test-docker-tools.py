@@ -38,6 +38,44 @@ module array_probe(input [15:0] data, output ok);
 endmodule
 '''
 
+# Exercise the XLS-generated two-cycle pipeline with both simulators. Delays,
+# assertions, and a VCD trace also check Verilator's compiled runtime support.
+SIMULATION = '''`timescale 1ns/1ps
+module simulation_tb;
+  reg clk = 0;
+  reg [31:0] x = 0, y = 0;
+  wire [31:0] out;
+  docker_add dut(.clk(clk), .x(x), .y(y), .out(out));
+  always #5 clk = ~clk;
+
+  task automatic check_sum(input reg [31:0] a, b);
+    reg [31:0] expected;
+    begin
+      @(negedge clk);
+      x = a;
+      y = b;
+      expected = a + b;
+      repeat (2) @(posedge clk);
+      #1;
+      if (out !== expected)
+        $fatal(1, "sum mismatch: %h + %h = %h, expected %h", a, b, out, expected);
+    end
+  endtask
+
+  initial begin
+    $dumpfile("simulation.vcd");
+    $dumpvars(0, simulation_tb);
+    check_sum(32'd2, 32'd3);
+    check_sum(32'd42, 32'd0);
+    check_sum(32'hffff_ffff, 32'd1);
+    check_sum(32'h7fff_ffff, 32'd1);
+    check_sum(32'h1234_5678, 32'h8765_4321);
+    $display("RTL_SIMULATION_PASS");
+    $finish;
+  end
+endmodule
+'''
+
 TIMING = '''read_lef $::env(NANGATE45_TECH_LEF)
 read_lef $::env(NANGATE45_CELLS_LEF)
 read_liberty $::env(NANGATE45_LIBERTY)
@@ -105,8 +143,14 @@ def main():
             run('yosys-version', [bin_dir / 'yosys', '-V'])
             run('sta-version', [bin_dir / 'sta', '-version'])
             run('openroad-version', [bin_dir / 'openroad', '-version'])
+            run('iverilog-version', [bin_dir / 'iverilog', '-V'])
+            run('vvp-version', [bin_dir / 'vvp', '-V'])
+            run('verilator-version', [bin_dir / 'verilator', '--version'])
+            run('simulation-package-versions', [bin_dir / 'eda', 'cat',
+                '/opt/eda/manifests/simulation-packages.txt'])
             run('single-container-shell', [bin_dir / 'eda', 'bash', '-ec',
-                'xls interpreter_main --version\nyosys -V\nsta -version\nopenroad -version'])
+                'xls interpreter_main --version\nyosys -V\nsta -version\nopenroad -version\n'
+                'iverilog -V\nvvp -V\nverilator --version'])
             run('no-standalone-opensta', [bin_dir / 'eda', 'bash', '-ec',
                 'test ! -e /opt/eda/opensta\n'
                 'test ! -e /opt/eda/manifests/opensta-install.json\n'
@@ -115,7 +159,9 @@ def main():
 from pathlib import Path
 import struct
 import subprocess
-for path in [*Path('/opt/eda/xls').iterdir(), *Path('/opt/eda/yosys/bin').iterdir(), Path('/opt/eda/openroad/bin/openroad')]:
+for path in [*Path('/opt/eda/xls').iterdir(), *Path('/opt/eda/yosys/bin').iterdir(),
+             Path('/opt/eda/openroad/bin/openroad'), Path('/usr/bin/iverilog'),
+             Path('/usr/bin/vvp'), Path('/usr/bin/verilator_bin')]:
     if not path.is_file():
         continue
     with path.open('rb') as handle:
@@ -159,6 +205,31 @@ for path in [*Path('/opt/eda/xls').iterdir(), *Path('/opt/eda/yosys/bin').iterdi
                                     'design.opt.ir'], destination=project / 'design.v')
             assert 'module docker_add' in (project / 'design.v').read_text()
             assert (project / 'design.sig.textproto').stat().st_size > 0
+
+            (project / 'simulation_tb.sv').write_text(SIMULATION)
+            run('iverilog-compile', [bin_dir / 'iverilog', '-g2012', '-s', 'simulation_tb',
+                '-o', 'simulation.vvp', 'design.v', 'simulation_tb.sv'])
+            simulated = run('iverilog-simulation', [bin_dir / 'vvp', 'simulation.vvp'])
+            assert 'RTL_SIMULATION_PASS' in simulated, simulated
+            assert (project / 'simulation.vcd').stat().st_size > 0
+            (project / 'simulation.vcd').rename(project / 'iverilog.vcd')
+            run('verilator-lint', [bin_dir / 'verilator', '--lint-only', '--timing',
+                '--top-module', 'simulation_tb', '-Wno-TIMESCALEMOD', 'design.v', 'simulation_tb.sv'])
+            # Verilator's generated Makefiles explicitly reject spaces in the
+            # build path. Keep testing the other tools (and lint) with spaces.
+            with tempfile.TemporaryDirectory(prefix='eda-verilator-', dir='/tmp') as temporary_verilator:
+                verilator_project = Path(temporary_verilator).resolve()
+                for filename in ('design.v', 'simulation_tb.sv'):
+                    shutil.copy2(project / filename, verilator_project / filename)
+                run('verilator-build', [bin_dir / 'verilator', '--binary', '--timing', '--trace',
+                    '--assert', '-j', '2', '--top-module', 'simulation_tb', '-Wno-TIMESCALEMOD',
+                    '--Mdir', 'obj_dir', '-o', 'simulation', 'design.v', 'simulation_tb.sv'],
+                    cwd=verilator_project)
+                simulated = run('verilator-simulation', [bin_dir / 'eda', './obj_dir/simulation'],
+                                cwd=verilator_project)
+                assert 'RTL_SIMULATION_PASS' in simulated, simulated
+                assert (verilator_project / 'simulation.vcd').stat().st_size > 0
+                shutil.copytree(verilator_project, project / 'verilator')
 
             (project / 'probe.sv').write_text(SYSTEMVERILOG)
             proof = run('slang-array-ports-sat', [bin_dir / 'yosys', '-Q', '-T', '-p',

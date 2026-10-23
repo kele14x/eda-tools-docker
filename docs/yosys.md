@@ -35,7 +35,6 @@ python3 scripts/test-docker-tools.py
 
 The integration flow checks slang array ports with a SAT proof, bundled
 runtime data, ABC technology mapping with Nangate45, and OpenSTA timing/power.
-Design-specific Benes validation belongs to the consuming `xls-test` project.
 
 ## Rebuild in Ubuntu 24.04
 
