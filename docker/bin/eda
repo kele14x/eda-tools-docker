@@ -26,7 +26,7 @@ case "$work_dir/" in
 esac
 
 docker_context="${EDA_DOCKER_CONTEXT:-orbstack}"
-image="${EDA_IMAGE:-local/eda-tools:v1}"
+image="${EDA_IMAGE:-local/eda-tools:arm64}"
 platform="${EDA_PLATFORM:-}"
 if [[ -z "$platform" ]]; then
     # Suppress Docker's cross-architecture warning for an intentional AMD64

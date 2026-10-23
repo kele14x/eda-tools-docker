@@ -9,11 +9,11 @@ gain depends on the design, routing stage, thread count, and available RAM.
 Build from this checkout with OrbStack running:
 
 ```bash
-EDA_PLATFORM=linux/arm64 ./scripts/build-docker-tools.sh --progress=plain
+./scripts/build-docker-tools.sh --progress=plain
 ```
 
-This creates `local/eda-tools:arm64` using `docker/Dockerfile.source`. It
-leaves `local/eda-tools:v1` available. Unlike the AMD64 packaging build, it
+This creates the default `local/eda-tools:arm64` using `docker/Dockerfile.source`
+and tags the same image as `local/eda-tools:v1` for compatibility. Unlike the AMD64 packaging build, it
 does not need `tools/` or `downloads/`: source code and the checksum-pinned
 Nangate45 files are fetched inside Docker.
 
@@ -33,7 +33,6 @@ available with `--build-arg OPENROAD_GUI=OFF`; that image does not support
 ## Validate and select the image
 
 ```bash
-export EDA_IMAGE=local/eda-tools:arm64
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
   --output-dir build/docker-tools-arm64
 ./bin/run-smoke-test.sh
@@ -46,9 +45,9 @@ Reinstalling the launchers is necessary if the installed copies still force
 `--platform linux/amd64`. Updated launchers let Docker use the selected
 image's architecture. `EDA_PLATFORM` can explicitly constrain Docker's
 platform when needed, but selecting the image with `EDA_IMAGE` is enough.
-Keep `export EDA_IMAGE=local/eda-tools:arm64` in the shell or project's
-environment to use it for subsequent `eda`, `xls`, `yosys`, `sta`, and
-`openroad` invocations. With no `EDA_IMAGE`, launchers still select `v1`.
+With no `EDA_IMAGE`, `eda`, `xls`, `yosys`, `sta`, and `openroad` select
+`local/eda-tools:arm64`. No shell configuration is required. Set `EDA_IMAGE`
+only when selecting a different toolchain.
 
 The integration test checks the image architecture, executable ELF headers,
 runtime checksums, dynamic linking, XLS's ARM64 LLVM JIT, slang and ABC,
@@ -75,9 +74,10 @@ hashes describe this build; they are not prepublished upstream checksums.
 Ubuntu apt dependencies are resolved at build time, so the build is pinned
 at the tool-source level rather than bit-for-bit reproducible.
 
-To return to the existing image:
+To build and select the optional AMD64 image from the host installations:
 
 ```bash
-export EDA_IMAGE=local/eda-tools:v1
+EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
+export EDA_IMAGE=local/eda-tools:amd64
 unset EDA_PLATFORM
 ```

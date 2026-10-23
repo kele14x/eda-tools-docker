@@ -1,11 +1,12 @@
 # Shared Docker tools on macOS
 
-Apple Silicon can use the native source image: see [ARM64 Docker](arm64-docker.md).
-Build it with `EDA_PLATFORM=linux/arm64 ./scripts/build-docker-tools.sh`,
-then select it with `EDA_IMAGE=local/eda-tools:arm64`. The launchers support
-both architectures; reinstall older copies that force AMD64.
+The default image is `local/eda-tools:arm64`, built from source for Apple
+Silicon: see [ARM64 Docker](arm64-docker.md). Build it with
+`./scripts/build-docker-tools.sh`. The same native image is tagged
+`local/eda-tools:v1` for compatibility. The launchers support both
+architectures; reinstall older copies that force AMD64.
 
-The root `Dockerfile` packages the existing pinned Linux amd64 installations
+The optional root `Dockerfile` packages the existing pinned Linux amd64 installations
 on Ubuntu 24.04. It includes XLS and the DSLX standard library, Yosys 0.69
 with slang and ABC, OpenROAD `26Q4-878-g273fa45460` with embedded OpenSTA 3.1.0, and
 Nangate45 timing/physical libraries.
@@ -24,14 +25,13 @@ installation directory is on `PATH`. A running OrbStack Docker engine is require
 From this repository on macOS:
 
 ```bash
-python3 scripts/install-openroad.py
 ./scripts/build-docker-tools.sh
 ./bin/run-smoke-test.sh
 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
 ```
 
-Defaults are image `local/eda-tools:v1`, Docker context `orbstack`, and
+Defaults are image `local/eda-tools:arm64`, Docker context `orbstack`, and
 installation directory `~/.local/bin`. The launcher installer copies five
 executable scripts (`eda`, `xls`, `yosys`, `sta`, and `openroad`); those scripts
 do not reference this checkout, so moving the repository does not break the installed commands.
@@ -165,7 +165,9 @@ then install the launchers there and set `EDA_IMAGE` to that registry tag or
 digest. Projects can pin a digest for an immutable tool selection. No image
 is published by the build or installation scripts.
 
-The default AMD64 image packages already-built binaries. To update a tool
+The optional AMD64 image packages already-built binaries. Build it using
+`EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh`; its tag is
+`local/eda-tools:amd64`. To update a tool
 in that image, rebuild or download the desired amd64
 installation, update its manifest, update the explicit versioned paths in
 `Dockerfile` and `.dockerignore`, and build and test a new tag. The Ubuntu

@@ -19,10 +19,10 @@ From this repository:
 
 ```bash
 python3 scripts/install-openroad.py
-./scripts/build-docker-tools.sh
-python3 scripts/test-docker-tools.py
+EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
+EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
-openroad -version
+EDA_IMAGE=local/eda-tools:amd64 openroad -version
 ```
 
 The installer downloads the 63 MB runtime layer from Docker Hub using an

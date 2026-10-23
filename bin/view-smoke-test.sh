@@ -39,7 +39,7 @@ for artifact in routed.def routed.sdc; do
 done
 
 run_args=(run --detach --rm --init)
-image="${EDA_IMAGE:-local/eda-tools:v1}"
+image="${EDA_IMAGE:-local/eda-tools:arm64}"
 platform="${EDA_PLATFORM:-}"
 if [[ -z "$platform" ]]; then
     platform="$("${docker_cmd[@]}" image inspect --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null || true)"

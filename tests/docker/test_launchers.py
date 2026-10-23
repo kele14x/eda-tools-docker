@@ -40,11 +40,19 @@ else:
         self.assertEqual(arguments[-3:], ['local/eda-tools:arm64', 'openroad', '-version'])
         self.assertIn(f'type=bind,source={self.folder},target={self.folder}', arguments)
 
-    def test_explicit_platform_and_legacy_default(self):
-        result = self.invoke('docker/bin/eda', 'true', EDA_PLATFORM='linux/amd64')
+    def test_explicit_platform_and_image(self):
+        result = self.invoke('docker/bin/eda', 'true', EDA_PLATFORM='linux/amd64',
+                             EDA_IMAGE='local/eda-tools:amd64')
         arguments = json.loads(result.stdout)
         self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/amd64')
-        self.assertEqual(arguments[-2:], ['local/eda-tools:v1', 'true'])
+        self.assertEqual(arguments[-2:], ['local/eda-tools:amd64', 'true'])
+
+    def test_default_launcher_selects_native_image(self):
+        result = self.invoke('docker/bin/eda', 'true')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = json.loads(result.stdout)
+        self.assertEqual(arguments[-2:], ['local/eda-tools:arm64', 'true'])
+        self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/arm64')
 
     def test_amd64_image_uses_its_own_architecture(self):
         result = self.invoke('docker/bin/eda', 'true', FAKE_IMAGE_PLATFORM='linux/amd64')
@@ -56,22 +64,39 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('--platform', json.loads(result.stdout))
 
-    def test_native_build_uses_source_dockerfile_and_separate_tag(self):
+    def test_default_build_uses_native_source_and_compatibility_tag(self):
         result = self.invoke('scripts/build-docker-tools.sh', '--progress=plain',
-                             EDA_PLATFORM='linux/arm64', EDA_BUILD_JOBS='2')
+                             EDA_BUILD_JOBS='2')
         self.assertEqual(result.returncode, 0, result.stderr)
         arguments = json.loads(result.stdout)
         self.assertEqual(arguments[arguments.index('--file') + 1], str(ROOT / 'docker/Dockerfile.source'))
         self.assertEqual(arguments[arguments.index('--tag') + 1], 'local/eda-tools:arm64')
+        self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/arm64')
+        self.assertEqual([arguments[i + 1] for i, value in enumerate(arguments) if value == '--tag'],
+                         ['local/eda-tools:arm64', 'local/eda-tools:v1'])
         self.assertIn('BUILD_JOBS=2', arguments)
         self.assertIn('--progress=plain', arguments)
 
     def test_legacy_build_and_custom_image(self):
-        result = self.invoke('scripts/build-docker-tools.sh', EDA_IMAGE='custom:tag')
+        result = self.invoke('scripts/build-docker-tools.sh', EDA_PLATFORM='linux/amd64',
+                             EDA_IMAGE='custom:tag')
         arguments = json.loads(result.stdout)
         self.assertEqual(arguments[arguments.index('--file') + 1], str(ROOT / 'Dockerfile'))
         self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/amd64')
         self.assertEqual(arguments[arguments.index('--tag') + 1], 'custom:tag')
+        self.assertNotIn('local/eda-tools:v1', arguments)
+
+    def test_amd64_build_keeps_native_default_tag(self):
+        result = self.invoke('scripts/build-docker-tools.sh', EDA_PLATFORM='linux/amd64')
+        arguments = json.loads(result.stdout)
+        self.assertEqual(arguments[arguments.index('--tag') + 1], 'local/eda-tools:amd64')
+        self.assertNotIn('local/eda-tools:v1', arguments)
+
+    def test_custom_native_build_keeps_default_tags(self):
+        result = self.invoke('scripts/build-docker-tools.sh', EDA_IMAGE='custom:tag')
+        arguments = json.loads(result.stdout)
+        self.assertEqual([arguments[i + 1] for i, value in enumerate(arguments) if value == '--tag'],
+                         ['custom:tag'])
 
     def test_unsupported_build_platform_fails_before_docker(self):
         result = self.invoke('scripts/build-docker-tools.sh', EDA_PLATFORM='linux/riscv64')

@@ -65,7 +65,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     environment.pop('EDA_PROJECT_ROOT', None)
-    image = environment.get('EDA_IMAGE', 'local/eda-tools:v1')
+    image = environment.get('EDA_IMAGE', 'local/eda-tools:arm64')
     context = environment.get('EDA_DOCKER_CONTEXT', 'orbstack')
     report = {'image': image, 'context': context, 'bin_dir': str(bin_dir), 'checks': []}
 

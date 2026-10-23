@@ -24,36 +24,35 @@ xls-tools/
 
 ## Docker on macOS
 
-For Apple Silicon, build a native Linux ARM64 image from the pinned sources:
+The default toolchain is native Linux ARM64 for Apple Silicon. With OrbStack
+running, build from the pinned sources and install the launchers:
 
 ```bash
-EDA_PLATFORM=linux/arm64 ./scripts/build-docker-tools.sh --progress=plain
-export EDA_IMAGE=local/eda-tools:arm64
+./scripts/build-docker-tools.sh --progress=plain
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
   --output-dir build/docker-tools-arm64
 ./bin/run-smoke-test.sh
 ./scripts/install-docker-tools.sh
 ```
 
+This builds `local/eda-tools:arm64` and gives the same image the compatibility
+tag `local/eda-tools:v1`. The launchers select ARM64 without environment overrides.
 The first source build is substantial; see [ARM64 Docker](docs/arm64-docker.md)
-for memory controls, caching, provenance, and image selection. Keep `EDA_IMAGE`
-set to select the native image. Reinstall existing launchers to remove their
-old AMD64 constraint.
+for memory controls, caching, provenance, and image selection. Reinstall existing
+launchers to remove their old AMD64 constraint.
 
 To package the existing AMD64 binaries instead:
 
-With OrbStack running, execute from this folder:
-
 ```bash
 python3 scripts/install-openroad.py
-./scripts/build-docker-tools.sh
-./bin/run-smoke-test.sh
-python3 scripts/test-docker-tools.py
-./scripts/install-docker-tools.sh
+EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
+EDA_IMAGE=local/eda-tools:amd64 ./bin/run-smoke-test.sh
+EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
-This builds `local/eda-tools:v1` for `linux/amd64` and installs `eda`, `xls`,
-`yosys`, `sta`, and `openroad` in `~/.local/bin`. The installed commands
+The optional AMD64 packaging build uses `local/eda-tools:amd64`.
+The launcher installer places `eda`, `xls`, `yosys`, `sta`, and `openroad`
+in `~/.local/bin`. The installed commands
 preserve the calling project's working directory and do not depend on this checkout.
 Ensure that directory is on `PATH`; use `rehash` in an existing zsh after
 installation.
@@ -119,10 +118,10 @@ libraries in OpenROAD's browser GUI. Stop it with
 
 | Tool | Installation |
 | --- | --- |
-| Google XLS | `v0.0.0-10788-g6e55d7763` Linux x64 release |
+| Google XLS | `v0.0.0-10788-g6e55d7763`; ARM64 source build, optional Linux x64 release |
 | Yosys | 0.69, commit `143eb14f9cc55d6f8927e68523b0c9d2166ed02c`, slang and ABC enabled |
 | OpenSTA | 3.1.0 embedded in OpenROAD; source submodule `84c4d7e133d3b1a54352c97c6a5df3140c71c78c` |
-| OpenROAD | `26Q4-878-g273fa45460`, official Ubuntu 24.04 amd64 runtime; image/layer digests pinned |
+| OpenROAD | `26Q4-878-g273fa45460`; ARM64 source build with parser EOF patch, optional pinned amd64 runtime |
 | Nangate45 | Typical corner, 1.1 V, 25 C; SHA-256 pinned in its manifest |
 | Nangate45 physical | LEF and RC files from OpenROAD-flow-scripts commit `31ae82dc3149d5e66386317d564f47c672ddb1d8` |
 
