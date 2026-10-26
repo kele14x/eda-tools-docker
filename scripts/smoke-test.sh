@@ -37,6 +37,31 @@ xls codegen_main --pipeline_stages=1 --delay_model=unit \
     "$output_dir/simple_add.opt.ir" > "$output_dir/simple_add.v"
 test -s "$output_dir/simple_add.v"
 
+echo "Simulating the XLS-generated adder with Icarus Verilog and Verilator"
+(
+    # Verilator's generated Makefiles require a build path without spaces.
+    simulation_dir="$(mktemp -d /tmp/eda-simulation.XXXXXX)"
+    trap 'rm -rf -- "$simulation_dir"' EXIT
+    cp "$output_dir/simple_add.v" "$project_dir/tests/smoke/simple_add_tb.sv" "$simulation_dir/"
+    cd "$simulation_dir"
+
+    iverilog -g2012 -s simple_add_tb -o simulation.vvp simple_add.v simple_add_tb.sv \
+        2>&1 | tee "$output_dir/iverilog-compile.log"
+    vvp simulation.vvp 2>&1 | tee "$output_dir/iverilog.log"
+    grep -Fxq 'RTL_SIMULATION_PASS' "$output_dir/iverilog.log"
+    test -s simulation.vcd
+    mv simulation.vcd "$output_dir/iverilog.vcd"
+    mv simulation.vvp "$output_dir/simple_add.vvp"
+
+    verilator --binary --timing --trace --assert -j 2 --top-module simple_add_tb \
+        -Wno-TIMESCALEMOD --Mdir obj_dir -o simulation simple_add.v simple_add_tb.sv \
+        2>&1 | tee "$output_dir/verilator-build.log"
+    ./obj_dir/simulation 2>&1 | tee "$output_dir/verilator.log"
+    grep -Fxq 'RTL_SIMULATION_PASS' "$output_dir/verilator.log"
+    test -s simulation.vcd
+    mv simulation.vcd "$output_dir/verilator.vcd"
+)
+
 echo "Mapping the XLS-generated adder to Nangate45 cells"
 cp "$project_dir/tests/smoke/simple_add.sdc" "$output_dir/simple_add.sdc"
 (
@@ -67,5 +92,5 @@ YOSYS
     grep -Fxq 'OPENROAD_ROUTED_RELOAD_PASS' routed-reload.log
 )
 
-echo "PASS: XLS tests, Verilog generation, Nangate45 mapping, placement, and routing"
+echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, Nangate45 mapping, placement, and routing"
 echo "Outputs: $output_dir"

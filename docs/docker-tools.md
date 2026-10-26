@@ -76,10 +76,17 @@ Logs, generated artifacts, and `results.json` are retained in the output directo
 Run `./bin/run-smoke-test.sh` from this checkout, or invoke that launcher by
 absolute path from another directory. It runs `tests/smoke/simple_add.x`
 through DSLX tests and quickchecks, both IR evaluators, IR optimization,
-Verilog generation, Yosys/ABC mapping to Nangate45, and OpenROAD placement,
-clock-tree synthesis, global routing, and detailed routing in one Docker
-container. It does not build the image; use the build command above first
-if the image is unavailable.
+Verilog generation, Icarus/Verilator simulation, Yosys/ABC mapping to Nangate45,
+and OpenROAD placement, clock-tree synthesis, global routing, and detailed
+routing in one Docker container. It does not build the image; use the build
+command above first if the image is unavailable.
+
+Both simulators compile and run `tests/smoke/simple_add_tb.sv` against the
+generated RTL, checking six sums including zero and 32-bit overflow with
+the two-cycle pipeline latency. Each run must report `RTL_SIMULATION_PASS`
+and produce a nonempty VCD waveform. Verilator builds a C++ executable with
+timing and tracing enabled. Waveforms are saved as `iverilog.vcd` and
+`verilator.vcd` alongside the simulator build/run logs in `build/simple_add/`.
 
 The source fixture and smoke-test scripts live in this toolchain project.
 Generated IR, Verilog, the module signature, mapped cells, placed/routed

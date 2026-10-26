@@ -55,8 +55,9 @@ only when selecting a different toolchain.
 The integration test checks the image architecture, executable ELF headers,
 runtime checksums, dynamic linking, XLS's ARM64 LLVM JIT, Icarus and Verilator
 simulation of XLS-generated RTL, Verilator C++ compilation and tracing, slang and ABC,
-OpenSTA timing/power, placement, and database reload. The smoke test adds
-clock-tree synthesis and detailed routing with zero required DRC violations.
+OpenSTA timing/power, placement, and database reload. The smoke test also runs
+both simulators on the adder with waveform checks, then adds clock-tree
+synthesis and detailed routing with zero required DRC violations.
 Smoke-test outputs replace `build/simple_add/`; keep separate copies before
 comparing architectures. Benchmark the same design and thread count after
 the source build has finished so compilation does not compete with routing.

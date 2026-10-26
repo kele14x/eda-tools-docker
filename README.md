@@ -96,6 +96,11 @@ converts and optimizes XLS IR and generates one-stage pipelined Verilog and
 a module signature. With the default input/output registers, the signature
 reports latency two and initiation interval one.
 
+Icarus Verilog and Verilator each compile and run the generated RTL against
+`tests/smoke/simple_add_tb.sv`. Both must pass six addition cases, including
+zero and 32-bit overflow, and produce a VCD waveform. A mismatch or timeout
+fails the smoke test; Verilator also exercises C++ compilation and tracing.
+
 Yosys maps the generated adder to Nangate45 cells. OpenROAD creates a
 floorplan, places pins and cells, synthesizes a clock tree for the 96 pipeline
 flops, and performs global and detailed signal/clock routing on metal2–metal6.
@@ -108,6 +113,7 @@ Artifacts go to `build/simple_add/`:
 | Stage | Outputs |
 | --- | --- |
 | XLS | IR, optimized IR, `simple_add.v`, and module signature |
+| RTL simulation | `simple_add.vvp`, `iverilog.vcd`, `verilator.vcd`, and simulator build/run logs |
 | Cell mapping | `simple_add.mapped.v`, `synth.ys`, `synthesis.log` |
 | Placement | `placed.def`, `placed.odb` |
 | Routing | `routed.def`, `routed.odb`, `routed.v`, `routed.sdc`, `route.guide` |
