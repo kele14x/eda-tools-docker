@@ -169,3 +169,8 @@ and OpenDB reload. To check OpenSTA activity and OpenROAD placement through Dock
 OPENROAD_TEST_BINARY="$PWD/docker/bin/openroad" \
   python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 ```
+
+## License
+
+This repository's original code is licensed under the [MIT License](LICENSE).
+Third-party tools and libraries retain their respective licenses.
