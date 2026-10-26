@@ -1,0 +1,2 @@
+# Keep text files portable to Linux containers, including extensionless launchers.
+* text=auto eol=lf

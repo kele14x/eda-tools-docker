@@ -20,6 +20,10 @@ and tags the same image as `local/eda-tools:v1` for compatibility. Unlike the AM
 does not need `tools/` or `downloads/`: source code and the checksum-pinned
 Nangate45 files are fetched inside Docker.
 
+The Dockerfile defaults to `XLS_INSTALL_MODE=auto`: ARM64 builds XLS from source,
+while AMD64 downloads the checksum-pinned XLS release. To compile XLS from
+source on AMD64 too, pass `--build-arg XLS_INSTALL_MODE=source`.
+
 The first build downloads compilers/dependencies and compiles large C++
 projects, including LLVM for XLS. Allow hours and tens of GB of Docker disk
 space. Four compile jobs are the default. Set `EDA_BUILD_JOBS=2` to reduce

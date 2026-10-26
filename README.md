@@ -23,6 +23,13 @@ eda-tools-docker/
 └── build/            # Test logs and generated artifacts (ignored)
 ```
 
+## Windows with WSL containers
+
+Use `wslc` to build a native AMD64 image. It compiles OpenROAD/Yosys from
+source and automatically downloads the checksum-pinned XLS release.
+See [WSL containers](docs/wsl-containers.md) for PowerShell build commands,
+XLS source-build selection, and the full smoke test.
+
 ## Docker on macOS
 
 The default toolchain is native Linux ARM64 for Apple Silicon. Clone the
