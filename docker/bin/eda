@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.
+# Managed by eda-tools-docker; installed by scripts/install-docker-tools.sh.
 set -euo pipefail
 
 if [[ $# -eq 0 || "$1" == --help || "$1" == -h ]]; then

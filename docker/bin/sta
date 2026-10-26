@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.
+# Managed by eda-tools-docker; installed by scripts/install-docker-tools.sh.
 set -euo pipefail
 # Compatibility command: OpenSTA is embedded in OpenROAD.
 exec "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/eda" openroad "$@"

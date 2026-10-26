@@ -1,4 +1,4 @@
-# XLS Tools
+# EDA Tools Docker
 
 Shared Linux installations of Google XLS, Yosys with slang/ABC,
 OpenROAD with embedded OpenSTA, and Nangate45 timing/physical libraries,
@@ -9,7 +9,7 @@ tool documentation, and integration tests.
 ## Layout
 
 ```text
-xls-tools/
+eda-tools-docker/
 ├── Dockerfile        # Ubuntu 24.04 amd64 runtime image
 ├── docker/           # Image entrypoint and Mac Docker launchers
 ├── bin/              # VM / Linux launchers and Docker smoke test
@@ -25,10 +25,13 @@ xls-tools/
 
 ## Docker on macOS
 
-The default toolchain is native Linux ARM64 for Apple Silicon. With OrbStack
-running, build from the pinned sources and install the launchers:
+The default toolchain is native Linux ARM64 for Apple Silicon. Clone the
+repository, then build from the pinned sources with OrbStack running and
+install the launchers:
 
 ```bash
+git clone git@github.com:kele14x/eda-tools-docker.git
+cd eda-tools-docker
 ./scripts/build-docker-tools.sh --progress=plain
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
   --output-dir build/docker-tools-arm64

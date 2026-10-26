@@ -8,14 +8,16 @@ if [[ $# -gt 1 || "${1:-}" == --help || "${1:-}" == -h ]]; then
     if [[ $# -gt 1 ]]; then exit 2; else exit 0; fi
 fi
 bin_dir="${1:-$HOME/.local/bin}"
-marker='# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.'
+marker='# Managed by eda-tools-docker; installed by scripts/install-docker-tools.sh.'
+# Recognize installed launchers from before the repository rename.
+legacy_marker='# Managed by xls-tools Docker tools; installed by scripts/install-docker-tools.sh.'
 tools=(eda xls yosys sta openroad iverilog vvp verilator)
 
 # Preflight every destination before changing any installed commands.
 for tool in "${tools[@]}"; do
     destination="$bin_dir/$tool"
     if [[ -e "$destination" || -L "$destination" ]]; then
-        if [[ -L "$destination" || ! -f "$destination" ]] || ! grep -Fqx -e "$marker" "$destination"; then
+        if [[ -L "$destination" || ! -f "$destination" ]] || ! grep -Fqx -e "$marker" -e "$legacy_marker" "$destination"; then
             echo "Refusing to overwrite an unrelated command: $destination" >&2
             exit 1
         fi

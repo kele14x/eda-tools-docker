@@ -46,6 +46,7 @@ and `verilator`); those scripts
 do not reference this checkout, so moving the repository does not break the installed commands.
 It only replaces files marked as belonging to this setup, and refuses to
 overwrite unrelated commands. Re-run it after changing the launchers.
+Launchers installed before the repository rename are recognized and upgraded.
 
 If needed, add `export PATH="$HOME/.local/bin:$PATH"` to your shell startup
 file. Put it before Homebrew in `PATH` to select this Yosys instead of Homebrew's.

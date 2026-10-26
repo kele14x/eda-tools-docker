@@ -3,8 +3,8 @@ set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 docker_cmd=(docker --context "${EDA_DOCKER_CONTEXT:-orbstack}")
-container=xls-tools-openroad-viewer
-marker=xls-tools-openroad-viewer
+container=eda-tools-docker-openroad-viewer
+label_key=local.eda-tools-docker.viewer
 port="${OPENROAD_VIEWER_PORT:-8080}"
 
 if [[ $# -gt 1 || ( $# -eq 1 && "$1" != --stop ) ]]; then
@@ -18,14 +18,21 @@ if [[ ! "$port" =~ ^[0-9]+$ ]] || (( 10#$port < 1024 || 10#$port > 65535 )); the
     exit 2
 fi
 
-if "${docker_cmd[@]}" container inspect "$container" >/dev/null 2>&1; then
-    label="$("${docker_cmd[@]}" inspect --format '{{index .Config.Labels "local.xls-tools.viewer"}}' "$container")"
-    if [[ "$label" != "$marker" ]]; then
-        echo "Refusing to stop an unrelated container: $container" >&2
-        exit 1
+# Also find viewers launched before the repository rename.
+for viewer in "$container" xls-tools-openroad-viewer; do
+    viewer_label_key="$label_key"
+    if [[ "$viewer" != "$container" ]]; then
+        viewer_label_key=local.xls-tools.viewer
     fi
-    "${docker_cmd[@]}" stop "$container" >/dev/null
-fi
+    if "${docker_cmd[@]}" container inspect "$viewer" >/dev/null 2>&1; then
+        label="$("${docker_cmd[@]}" inspect --format "{{index .Config.Labels \"$viewer_label_key\"}}" "$viewer")"
+        if [[ "$label" != "$viewer" ]]; then
+            echo "Refusing to stop an unrelated container: $viewer" >&2
+            exit 1
+        fi
+        "${docker_cmd[@]}" stop "$viewer" >/dev/null
+    fi
+done
 if [[ "${1:-}" == --stop ]]; then
     echo 'Stopped the OpenROAD smoke-test viewer.'
     exit 0
@@ -48,7 +55,7 @@ if [[ -n "$platform" ]]; then
     run_args+=(--platform "$platform")
 fi
 "${docker_cmd[@]}" "${run_args[@]}" \
-    --name "$container" --label "local.xls-tools.viewer=$marker" \
+    --name "$container" --label "$label_key=$container" \
     --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$project_dir,target=$project_dir,readonly" \
     --workdir "$project_dir" \
