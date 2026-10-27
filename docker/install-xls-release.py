@@ -36,7 +36,6 @@ def main():
         archive.extractall(ROOT, filter='data')
     installation = ROOT / 'xls'
     (ROOT / archive_path.name.removesuffix('.tar.gz')).rename(installation)
-    info.pop('default_vm', None)
     info.update(
         variant='binary-release', installed_directory=str(installation),
         binary_sha256={path.name: file_sha256(path) for path in installation.iterdir()

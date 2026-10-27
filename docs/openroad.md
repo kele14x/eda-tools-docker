@@ -50,7 +50,7 @@ display forwarding and a complete RTL-to-GDS flow are not configured here.
 After running the smoke test:
 
 ```bash
-./bin/view-smoke-test.sh
+./scripts/view-smoke-test.sh
 ```
 
 Open [http://localhost:8080](http://localhost:8080) to pan, zoom, inspect cells
@@ -68,13 +68,8 @@ the latest DEF when run again. `EDA_IMAGE` and `EDA_DOCKER_CONTEXT` select
 the toolchain; `OPENROAD_VIEWER_PORT` selects another host port.
 
 ```bash
-./bin/view-smoke-test.sh --stop
+./scripts/view-smoke-test.sh --stop
 ```
-
-The native Qt GUI is also compiled into the binary and can be launched
-with `-gui` on a Linux desktop with an X display. The saved `routed.odb`
-can be opened directly with `openroad -gui -db routed.odb`; reading a DEF
-requires loading its technology and cell LEFs first.
 
 ## Nangate45 physical files
 
@@ -113,7 +108,7 @@ DEF/OpenDB export. `tests/smoke/route-adder.tcl` extends it with clock-tree
 synthesis, global routing, and detailed signal/clock routing on metal2–metal6.
 The 5 ns adder constraints are in `tests/smoke/simple_add.sdc`.
 
-Run `./bin/run-smoke-test.sh` to exercise the XLS-generated adder through
+Run `./scripts/run-smoke-test.sh` to exercise the XLS-generated adder through
 this flow. It requires zero detailed-routing DRCs, verifies route coverage,
 and uses `tests/smoke/check-routed-adder.tcl` in a fresh OpenROAD process to
 check the saved database's 96 pipeline flops, clock buffers, and routes.
@@ -121,45 +116,20 @@ Outputs and `routing-summary.json` are retained under `build/simple_add/`.
 Timing/power reports use global-route RC estimates. Power-grid construction,
 signoff, and GDS generation remain design-flow work.
 
-## Direct Linux / OrbStack execution
-
-`bin/openroad` runs through `ubuntu24` on macOS, or directly on Linux.
-Set `OPENROAD_VM` to select another OrbStack machine. The binary targets
-Ubuntu 24.04 x86-64 and requires X11 runtime libraries even in batch mode.
-Docker installs these automatically. For direct execution, install them
-inside the Linux environment (from the repository root):
-
-```bash
-sudo apt-get update
-python3 - <<'PY'
-import json
-import subprocess
-from pathlib import Path
-manifest = json.loads(Path('config/tools/openroad-install.json').read_text())
-subprocess.run(['sudo', 'apt-get', 'install', '-y', '--no-install-recommends',
-                *manifest['runtime_dependencies']['apt']], check=True)
-PY
-./bin/openroad -version
-```
-
-The VM launcher does not set the Docker library environment variables; use
-the corresponding absolute paths under `tools/` in direct-execution scripts.
-
 ## Verification and updates
 
-```bash
-# Direct VM / Linux tool tests
-python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
+The tool tests use `docker/bin/openroad` and the image's bundled Nangate45
+libraries. Select the image/context with `EDA_IMAGE` and `EDA_DOCKER_CONTEXT`.
 
-# The same tests through Docker
-OPENROAD_TEST_BINARY="$PWD/docker/bin/openroad" \
-  python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
+```bash
+# OpenSTA activity and OpenROAD placement through Docker
+python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 
 # XLS -> Yosys -> OpenROAD timing, power, and placement in a separate project
 python3 scripts/test-docker-tools.py
 
 # Full adder smoke flow, including clock-tree synthesis and detailed routing
-./bin/run-smoke-test.sh
+./scripts/run-smoke-test.sh
 ```
 
 The placement test checks 32 cells, legal placement, DEF output, and an

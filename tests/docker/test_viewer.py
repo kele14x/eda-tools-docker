@@ -40,7 +40,7 @@ elif args[0] != 'stop':
                                 DOCKER_CALL_LOG=str(self.log))
 
     def stop(self, labels):
-        result = subprocess.run([str(ROOT / 'bin/view-smoke-test.sh'), '--stop'],
+        result = subprocess.run([str(ROOT / 'scripts/view-smoke-test.sh'), '--stop'],
                                 env=self.environment | {'VIEWER_LABELS': json.dumps(labels)},
                                 capture_output=True, text=True)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]

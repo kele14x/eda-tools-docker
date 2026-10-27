@@ -8,8 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-OPENROAD = Path(os.environ.get("OPENROAD_TEST_BINARY", ROOT / "bin/openroad")).resolve()
-PLATFORM = ROOT / "tools/nangate45-physical"
+OPENROAD = ROOT / "docker/bin/openroad"
 
 
 class OpenROADPlacementTest(unittest.TestCase):
@@ -18,14 +17,16 @@ class OpenROADPlacementTest(unittest.TestCase):
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="openroad lef eof ", dir=scratch) as temporary:
             folder = Path(temporary).resolve()
-            tech = (PLATFORM / "lef/NangateOpenCellLibrary.tech.lef").read_bytes()
-            (folder / "read.tcl").write_text('''read_lef tech.lef
-if {[[ord::get_db_tech] findLayer metal1] eq "NULL"} { error "Missing metal1" }
-puts OPENROAD_LEF_EOF_PASS
-''')
             for ending in (b"\n", b""):
                 with self.subTest(ending=ending):
-                    (folder / "tech.lef").write_bytes(tech + b"\n# trailing comment" + ending)
+                    (folder / "read.tcl").write_text(
+                        'file copy -force $::env(NANGATE45_TECH_LEF) tech.lef\n'
+                        'set lef [open tech.lef a]\n'
+                        f'puts -nonewline $lef "\\n# trailing comment{ending.decode()}"\n'
+                        'close $lef\n'
+                        'read_lef tech.lef\n'
+                        'if {[[ord::get_db_tech] findLayer metal1] eq "NULL"} { error "Missing metal1" }\n'
+                        'puts OPENROAD_LEF_EOF_PASS\n')
                     result = subprocess.run(
                         [str(OPENROAD), "-no_init", "-exit", "-threads", "1", "read.tcl"],
                         cwd=folder, capture_output=True, text=True, timeout=30)
@@ -39,8 +40,6 @@ puts OPENROAD_LEF_EOF_PASS
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="openroad def eof ", dir=scratch) as temporary:
             folder = Path(temporary).resolve()
-            (folder / "tech.lef").write_bytes(
-                (PLATFORM / "lef/NangateOpenCellLibrary.tech.lef").read_bytes())
             design = b'''VERSION 5.8 ;
 DIVIDERCHAR "/" ;
 BUSBITCHARS "[]" ;
@@ -49,7 +48,7 @@ UNITS DISTANCE MICRONS 2000 ;
 DIEAREA ( 0 0 ) ( 10000 10000 ) ;
 END DESIGN
 # trailing comment'''
-            (folder / "read.tcl").write_text('''read_lef tech.lef
+            (folder / "read.tcl").write_text('''read_lef $::env(NANGATE45_TECH_LEF)
 read_def probe.def
 if {[[ord::get_db_block] getName] ne "eof_probe"} { error "Wrong design" }
 puts OPENROAD_DEF_EOF_PASS
@@ -77,9 +76,9 @@ puts OPENROAD_DEF_EOF_PASS
             (folder / "probe.v").write_text(
                 "module placement_probe(input clk, input [15:0] d, output [15:0] q);\n"
                 "wire [15:0] n;\n" + "\n".join(cells) + "\nendmodule\n")
-            preamble = f'''set tech_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.tech.lef"}}}
-set cells_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.macro.mod.lef"}}}
-set liberty {{{ROOT / "tools/nangate45/NangateOpenCellLibrary_typical.lib"}}}
+            preamble = '''set tech_lef $::env(NANGATE45_TECH_LEF)
+set cells_lef $::env(NANGATE45_CELLS_LEF)
+set liberty $::env(NANGATE45_LIBERTY)
 set input_netlist probe.v
 set design_top placement_probe
 '''
@@ -88,7 +87,7 @@ set design_top placement_probe
 
             def run(script):
                 environment = os.environ.copy()
-                # Repository libraries must also be visible through the Docker launcher.
+                # Keep repository paths visible when launching from the scratch directory.
                 environment["EDA_PROJECT_ROOT"] = str(ROOT)
                 result = subprocess.run(
                     [str(OPENROAD), "-no_init", "-exit", "-threads", "2", script],

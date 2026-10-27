@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Compatibility command: OpenSTA is embedded in OpenROAD.
-export OPENROAD_VM="${OPENSTA_VM:-${OPENROAD_VM:-ubuntu24}}"
-exec "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/openroad" "$@"

@@ -13,7 +13,6 @@
   "source_directory": "build/tools/yosys/source",
   "build_directory": "build/tools/yosys/build",
   "binary": "tools/yosys/bin/yosys",
-  "default_vm": "ubuntu24",
   "systemverilog_frontend": "read_slang",
   "build_dependencies": {
     "apt": [

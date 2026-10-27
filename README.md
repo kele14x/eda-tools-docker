@@ -12,9 +12,8 @@ tool documentation, and integration tests.
 eda-tools-docker/
 ├── Dockerfile        # Ubuntu 24.04 amd64 runtime image
 ├── docker/           # Image entrypoint and Mac Docker launchers
-├── bin/              # VM / Linux launchers and Docker smoke test
 ├── config/tools/     # Pinned versions, build options, and checksums
-├── scripts/          # Image build, test, and launcher installation
+├── scripts/          # Image build, smoke test/viewer, and launcher installation
 ├── tests/smoke/      # DSLX adder and Nangate45 synthesis/routing fixtures
 ├── tests/tools/      # OpenSTA activity and OpenROAD placement tests
 ├── docs/             # Docker usage and source rebuild instructions
@@ -42,7 +41,7 @@ cd eda-tools-docker
 ./scripts/build-docker-tools.sh --progress=plain
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
   --output-dir build/docker-tools-arm64
-./bin/run-smoke-test.sh
+./scripts/run-smoke-test.sh
 ./scripts/install-docker-tools.sh
 ```
 
@@ -57,7 +56,7 @@ To package the existing AMD64 binaries instead:
 ```bash
 python3 scripts/install-openroad.py
 EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
-EDA_IMAGE=local/eda-tools:amd64 ./bin/run-smoke-test.sh
+EDA_IMAGE=local/eda-tools:amd64 ./scripts/run-smoke-test.sh
 EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
@@ -95,7 +94,7 @@ See [the Docker guide](docs/docker-tools.md) for full usage and sharing.
 
 ## XLS-to-routing smoke test
 
-Run `./bin/run-smoke-test.sh` to check the existing Docker image with the
+Run `./scripts/run-smoke-test.sh` to check the existing Docker image with the
 small adder in `tests/smoke/simple_add.x`. The launcher works from any
 directory and runs the whole flow in one container using the selected image. It uses this
 checkout's Docker launcher and does not require globally installed wrappers.
@@ -135,10 +134,10 @@ This smoke test exercises signal and clock routing; power-grid construction,
 GDS export, and signoff are separate flow work. Select another image or
 context using `EDA_IMAGE` or `EDA_DOCKER_CONTEXT`.
 
-To view the routed layout, run `./bin/view-smoke-test.sh` and open
+To view the routed layout, run `./scripts/view-smoke-test.sh` and open
 [http://localhost:8080](http://localhost:8080). It loads the DEF and Nangate45
 libraries in OpenROAD's browser GUI. Stop it with
-`./bin/view-smoke-test.sh --stop`.
+`./scripts/view-smoke-test.sh --stop`.
 
 ## Pinned installations
 
@@ -156,25 +155,23 @@ their stable symlinks are under `tools/`. Downloads and built runtimes are
 local artifacts; keep the manifests, scripts, Docker setup, and documentation
 in version control.
 
-## Direct VM execution and tool tests
+## Docker execution and tool tests
 
-`bin/xls`, `bin/yosys`, `bin/sta`, and `bin/openroad` run the installations
-through `ubuntu24` on macOS, or directly on Linux. They preserve your working
-directory. Set `XLS_VM`, `YOSYS_VM`, `OPENSTA_VM`, or `OPENROAD_VM` to choose
-another OrbStack machine.
-Source rebuild instructions are in [Yosys](docs/yosys.md). OpenROAD
-installation, VM dependencies, and physical library usage are covered in
-[OpenROAD](docs/openroad.md). The `sta` command forwards to OpenROAD; existing
+All tools run inside Docker through the launchers in `docker/bin/`, which
+preserve your working directory. The launcher installer copies them into
+`~/.local/bin` for use from other projects. Source rebuild instructions are
+in [Yosys](docs/yosys.md). OpenROAD installation and physical library usage
+are covered in [OpenROAD](docs/openroad.md). The `sta` command forwards to OpenROAD; existing
 timing scripts need LEF inputs as described in [timing and power](docs/opensta.md).
 
 The standalone Docker test script covers the toolchain from an unrelated
 temporary project, including simulation of XLS-generated RTL with both Icarus
 and Verilator, waveform output, placement of an XLS/Yosys-generated adder,
-and OpenDB reload. To check OpenSTA activity and OpenROAD placement through Docker:
+and OpenDB reload. The OpenSTA activity and OpenROAD placement tests also
+use Docker and the image's bundled Nangate45 libraries:
 
 ```bash
-OPENROAD_TEST_BINARY="$PWD/docker/bin/openroad" \
-  python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
+python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 ```
 
 ## License

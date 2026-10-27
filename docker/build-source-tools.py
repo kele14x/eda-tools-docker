@@ -53,7 +53,7 @@ def record(tool, info, build):
     # Keep source identities, but never label native outputs with x86 checksums.
     for key in ('source_image', 'source_tag', 'archive', 'archive_prefix', 'archive_size_bytes',
                 'download_url', 'sha256', 'binary_sha256', 'abc_binary_sha256',
-                'runtime_tree_sha256', 'default_vm', 'source_directory', 'build_directory'):
+                'runtime_tree_sha256', 'source_directory', 'build_directory'):
         info.pop(key, None)
     info.update(platform='linux-arm64' if platform.machine() == 'aarch64' else 'linux-x64',
                 variant='source-build', installed_directory=str(ROOT / tool), build=build)

@@ -33,7 +33,7 @@ fi
 
 for artifact in routed.def routed.sdc; do
     if [[ ! -s "$project_dir/build/simple_add/$artifact" ]]; then
-        echo "Missing $artifact; run $project_dir/bin/run-smoke-test.sh first." >&2
+        echo "Missing $artifact; run $project_dir/scripts/run-smoke-test.sh first." >&2
         exit 2
     fi
 done
@@ -61,7 +61,7 @@ url="http://localhost:$port"
 for attempt in {1..30}; do
     if curl --fail --silent --max-time 1 "$url/" >/dev/null; then
         echo "OpenROAD layout viewer: $url"
-        echo "Stop with: $project_dir/bin/view-smoke-test.sh --stop"
+        echo "Stop with: $project_dir/scripts/view-smoke-test.sh --stop"
         exit 0
     fi
     sleep 0.2

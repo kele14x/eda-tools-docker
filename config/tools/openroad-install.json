@@ -17,7 +17,6 @@
   "binary": "tools/openroad/bin/openroad",
   "binary_sha256": "727602d3dbbbead25ce506395c6466f51543fb91c91c57dbb1f8677feff364f6",
   "runtime_tree_sha256": "4f4dd8738e81d33a8d0e6826be3d5d55a4e2472e8c4209dcf220e0e3b80a60f6",
-  "default_vm": "ubuntu24",
   "runtime_dependencies": {
     "apt": [
       "libx11-xcb1",

@@ -1,7 +1,6 @@
 """Verify OpenROAD's embedded OpenSTA retains measured pin and clock activity."""
 
 import json
-import os
 import re
 import subprocess
 import tempfile
@@ -9,9 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / "tools/nangate45/NangateOpenCellLibrary_typical.lib"
-ANALYZER = Path(os.environ.get("OPENROAD_TEST_BINARY", ROOT / "bin/openroad")).resolve()
-PLATFORM = ROOT / "tools/nangate45-physical"
+ANALYZER = ROOT / "docker/bin/openroad"
 STA_VERSION = json.loads((ROOT / "config/tools/openroad-install.json").read_text())["embedded_opensta"]["version"]
 
 NETLIST = '''module power_probe(input clk, en, d, output q, z);
@@ -32,9 +29,9 @@ class OpenSTAActivityTest(unittest.TestCase):
             netlist = folder / "probe.v"
             script = folder / "probe.tcl"
             netlist.write_text(NETLIST)
-            script.write_text(f'''read_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.tech.lef"}}}
-read_lef {{{PLATFORM / "lef/NangateOpenCellLibrary.macro.mod.lef"}}}
-read_liberty {{{LIBRARY}}}
+            script.write_text(f'''read_lef $::env(NANGATE45_TECH_LEF)
+read_lef $::env(NANGATE45_CELLS_LEF)
+read_liberty $::env(NANGATE45_LIBERTY)
 puts "EMBEDDED_OPENSTA_VERSION [sta::version]"
 read_verilog {{{netlist}}}
 link_design power_probe

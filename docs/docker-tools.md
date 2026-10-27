@@ -34,7 +34,7 @@ From this repository on macOS:
 
 ```bash
 ./scripts/build-docker-tools.sh
-./bin/run-smoke-test.sh
+./scripts/run-smoke-test.sh
 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
 ```
@@ -73,7 +73,7 @@ Logs, generated artifacts, and `results.json` are retained in the output directo
 
 ## XLS-to-routing smoke test
 
-Run `./bin/run-smoke-test.sh` from this checkout, or invoke that launcher by
+Run `./scripts/run-smoke-test.sh` from this checkout, or invoke that script by
 absolute path from another directory. It runs `tests/smoke/simple_add.x`
 through DSLX tests and quickchecks, both IR evaluators, IR optimization,
 Verilog generation, Icarus/Verilator simulation, Yosys/ABC mapping to Nangate45,
@@ -182,18 +182,14 @@ has no standalone OpenSTA binary or manifest. Existing timing scripts need
 the LEF-loading commands above; see [timing and power](opensta.md) for migration
 and analyzer provenance.
 
-The installed global commands use Docker. This project also provides
-`./bin/xls`, `./bin/yosys`, `./bin/sta`, and `./bin/openroad` for direct
-execution through the `ubuntu24` OrbStack machine on macOS, or directly on Linux. These
-VM launchers preserve the calling directory; select another machine with
-`XLS_VM`, `YOSYS_VM`, `OPENSTA_VM`, or `OPENROAD_VM`. The Docker installer uses the
-separate launchers in `docker/bin/`. See [OpenROAD](openroad.md) for direct
-VM runtime dependencies, physical-library variables, and placement examples.
+All tool commands use the Docker launchers in `docker/bin/`; the installer
+copies them into `~/.local/bin` by default. See [OpenROAD](openroad.md) for
+physical-library variables and placement examples.
 The Docker OpenROAD launcher supports batch flows. To inspect the routed
-smoke-test adder interactively, run `./bin/view-smoke-test.sh` and open
+smoke-test adder interactively, run `./scripts/view-smoke-test.sh` and open
 [http://localhost:8080](http://localhost:8080). This uses OpenROAD's browser
 viewer with a read-only project mount; stop it with
-`./bin/view-smoke-test.sh --stop`. Native Qt display forwarding is not configured.
+`./scripts/view-smoke-test.sh --stop`. Native Qt display forwarding is not configured.
 
 ## Select or distribute a toolchain
 

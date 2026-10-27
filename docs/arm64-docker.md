@@ -34,7 +34,7 @@ Deleting Docker's build cache loses that work.
 
 OpenROAD includes the Qt/browser viewer by default. A batch-only build is
 available with `--build-arg OPENROAD_GUI=OFF`; that image does not support
-`bin/view-smoke-test.sh`. OpenROAD uses its pinned Bazel release configuration
+`scripts/view-smoke-test.sh`. OpenROAD uses its pinned Bazel release configuration
 (optimized with ThinLTO), Yosys uses CMake Release, and XLS uses Bazel `opt`.
 
 ## Validate and select the image
@@ -42,9 +42,8 @@ available with `--build-arg OPENROAD_GUI=OFF`; that image does not support
 ```bash
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
   --output-dir build/docker-tools-arm64
-./bin/run-smoke-test.sh
-OPENROAD_TEST_BINARY="$PWD/docker/bin/openroad" \
-  python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
+./scripts/run-smoke-test.sh
+python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 ./scripts/install-docker-tools.sh
 ```
 
