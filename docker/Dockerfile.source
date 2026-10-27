@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build on the target CPU: linux/arm64 on Apple Silicon, without x86 emulation.
+# Build on the native Linux CPU: ARM64 on Apple Silicon or AMD64 on x64 Windows.
 FROM ubuntu:24.04 AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
@@ -44,8 +44,15 @@ RUN python3 /opt/build/build-source-tools.py yosys "$BUILD_JOBS"
 
 FROM yosys-build AS xls-build
 ARG BUILD_JOBS=4
+ARG TARGETARCH
+ARG XLS_INSTALL_MODE=auto
+COPY docker/install-xls-release.py /opt/build/install-xls-release.py
 RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,gid=1001,sharing=locked \
-    python3 /opt/build/build-source-tools.py xls "$BUILD_JOBS"
+    case "$XLS_INSTALL_MODE:$TARGETARCH" in \
+      auto:amd64|release:*) python3 /opt/build/install-xls-release.py ;; \
+      auto:arm64|source:*) python3 /opt/build/build-source-tools.py xls "$BUILD_JOBS" ;; \
+      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release)" >&2; exit 2 ;; \
+    esac
 RUN python3 /opt/build/build-source-tools.py libraries
 
 FROM runtime-base AS runtime

@@ -4,6 +4,7 @@
 !docker/Dockerfile.source
 !docker/build-source-tools.py
 !docker/install-build-deps.py
+!docker/install-xls-release.py
 !docker/openroad-parser-eof.patch
 !docker/entrypoint.sh
 !docker/runtime_checksums.py
