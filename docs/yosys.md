@@ -51,4 +51,4 @@ The integration flow checks slang array ports with a SAT proof, bundled
 runtime data, ABC technology mapping with Nangate45, and OpenSTA timing/power.
 See [ARM64 Docker](arm64-docker.md) for build caching and memory controls,
 [WSL containers](wsl-containers.md) for an AMD64 source image on Windows,
-and [Docker tools](docker-tools.md) for the optional AMD64 packaging build.
+and [Docker tools](docker-tools.md) for selecting either architecture on macOS.

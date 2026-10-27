@@ -7,10 +7,10 @@ installation manifest in its Docker image.
 The pinned OpenROAD executable reports OpenSTA version **3.1.0** through
 `sta::version`. The OpenROAD source pins its `src/sta` submodule to
 [`84c4d7e133d3b1a54352c97c6a5df3140c71c78c`](https://github.com/The-OpenROAD-Project/OpenSTA/tree/84c4d7e133d3b1a54352c97c6a5df3140c71c78c).
-The prebuilt executable reports `unknown` for `sta::git_sha1`; the OpenROAD
-source commit, image digest, and executable checksum identify the build.
-These details are recorded under `embedded_opensta` in
-`config/tools/openroad-install.json`.
+The source revision is recorded under `embedded_opensta` in
+`config/tools/openroad-install.json`. Both architectures build this engine
+from the pinned OpenROAD sources. Runtime manifests inside the image record
+the OpenROAD executable and tree checksums for the resulting build.
 
 ## Run timing and power analysis
 

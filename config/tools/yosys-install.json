@@ -2,38 +2,12 @@
   "repository": "https://github.com/YosysHQ/yosys",
   "version": "0.69",
   "commit": "143eb14f9cc55d6f8927e68523b0c9d2166ed02c",
-  "variant": "upstream-with-slang",
-  "platform": "linux-x64",
   "archive": "yosys-0.69-source.tar.gz",
   "download_url": "https://github.com/YosysHQ/yosys/releases/download/v0.69/yosys.tar.gz",
   "archive_size_bytes": 16403186,
   "sha256": "6dad6412cae417f5a53e2c943c2aee160162cfc1bdd31669230da1b7e3522571",
-  "patches": [],
-  "installed_directory": "tools/yosys-0.69-linux-x64",
-  "source_directory": "build/tools/yosys/source",
-  "build_directory": "build/tools/yosys/build",
-  "binary": "tools/yosys/bin/yosys",
   "systemverilog_frontend": "read_slang",
   "build_dependencies": {
-    "apt": [
-      "cmake",
-      "g++",
-      "make",
-      "ninja-build",
-      "git",
-      "python3",
-      "bison",
-      "flex",
-      "gawk",
-      "libffi-dev",
-      "libreadline-dev",
-      "tcl-dev",
-      "zlib1g-dev",
-      "libboost-dev",
-      "libfmt-dev",
-      "libtommath-dev",
-      "libtomlplusplus-dev"
-    ],
     "submodules": {
       "abc": "a51bf4a7bb38ce06ea3a544b1463b40832213917",
       "frontends/slang/lib": "b4fd362f4c53dc8ffab6946b9f866a6ea89e366d",
@@ -48,15 +22,11 @@
   },
   "cmake_options": {
     "CMAKE_BUILD_TYPE": "Release",
-    "CMAKE_INSTALL_PREFIX": "tools/yosys-0.69-linux-x64",
     "YOSYS_WITHOUT_SLANG": false,
     "YOSYS_WITHOUT_EDITLINE": true,
     "YOSYS_SLANG_REVISION": "b4fd362f4c53dc8ffab6946b9f866a6ea89e366d",
     "SLANG_REVISION": "e222e7dc0250231312f14c37d47404a49df00fe2",
     "CMAKE_DISABLE_FIND_PACKAGE_Git": true,
     "YOSYS_CHECKOUT_INFO": "143eb14f9cc55d6f8927e68523b0c9d2166ed02c"
-  },
-  "binary_sha256": "9382f6a45fa06949f474e24a27e0b315b7830feb305350abc689355120a58819",
-  "abc_binary_sha256": "daebbee0508097d04ccb8d49baa1b87707b1bb6a8f846c37b07b8b45a15f1bce",
-  "runtime_data_directory": "tools/yosys/share/yosys"
+  }
 }

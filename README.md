@@ -1,24 +1,21 @@
 # EDA Tools Docker
 
-Shared Linux installations of Google XLS, Yosys with slang/ABC,
-OpenROAD with embedded OpenSTA, and Nangate45 timing/physical libraries,
-plus Icarus Verilog and Verilator in Docker for RTL simulation and linting. This project owns
-the tool binaries, download cache, installation manifests, Docker image, launchers,
-tool documentation, and integration tests.
+Docker toolchain with Google XLS, Yosys with slang/ABC, OpenROAD with embedded
+OpenSTA, Nangate45 timing/physical libraries, and Icarus Verilog and Verilator
+for RTL simulation and linting. This project owns
+the source/release pins, Docker build, launchers, tool documentation, and
+integration tests. Both ARM64 and AMD64 use `docker/Dockerfile.source`.
 
 ## Layout
 
 ```text
 eda-tools-docker/
-├── Dockerfile        # Ubuntu 24.04 amd64 runtime image
-├── docker/           # Image entrypoint and Mac Docker launchers
-├── config/tools/     # Pinned versions, build options, and checksums
+├── docker/           # Shared source Dockerfile, entrypoint, and launchers
+├── config/tools/     # Source/release pins, build options, and input checksums
 ├── scripts/          # Image build, smoke test/viewer, and launcher installation
 ├── tests/smoke/      # DSLX adder and Nangate45 synthesis/routing fixtures
 ├── tests/tools/      # OpenSTA activity and OpenROAD placement tests
 ├── docs/             # Docker usage and source rebuild instructions
-├── tools/            # Installed runtimes and libraries (ignored)
-├── downloads/        # Source/release archives and checksums (ignored)
 └── build/            # Test logs and generated artifacts (ignored)
 ```
 
@@ -51,16 +48,18 @@ The first source build is substantial; see [ARM64 Docker](docs/arm64-docker.md)
 for memory controls, caching, provenance, and image selection. Reinstall existing
 launchers to remove their old AMD64 constraint.
 
-To package the existing AMD64 binaries instead:
+To build the AMD64 image with the same Dockerfile:
 
 ```bash
-python3 scripts/install-openroad.py
 EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
 EDA_IMAGE=local/eda-tools:amd64 ./scripts/run-smoke-test.sh
 EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
-The optional AMD64 packaging build uses `local/eda-tools:amd64`.
+The AMD64 build uses `local/eda-tools:amd64`. Both architectures compile
+OpenROAD and Yosys inside Docker. XLS builds from source on ARM64 and uses
+the checksum-pinned release on AMD64; pass `--build-arg XLS_INSTALL_MODE=source`
+to compile XLS on AMD64 too. No host tool installations or downloads are required.
 The launcher installer places `eda`, `xls`, `yosys`, `sta`, `openroad`,
 `iverilog`, `vvp`, and `verilator`
 in `~/.local/bin`. The installed commands
@@ -83,7 +82,7 @@ verilator --lint-only --top-module top src/top.sv
 The image contains the DSLX standard library, Yosys runtime data and ABC,
 OpenROAD with embedded OpenSTA, `/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`,
 and the Nangate45 LEF/RC files under `/opt/eda/nangate45-physical/`.
-Both Docker variants include Ubuntu's Icarus Verilog (`iverilog`/`vvp`),
+Both architectures include Ubuntu's Icarus Verilog (`iverilog`/`vvp`),
 Verilator, and a C++ compiler, Make, and zlib headers for building simulations.
 Simulator package versions are recorded at build time in
 `/opt/eda/manifests/simulation-packages.txt`; these packages follow Ubuntu
@@ -139,21 +138,21 @@ To view the routed layout, run `./scripts/view-smoke-test.sh` and open
 libraries in OpenROAD's browser GUI. Stop it with
 `./scripts/view-smoke-test.sh --stop`.
 
-## Pinned installations
+## Pinned tool sources and releases
 
-| Tool | Installation |
+| Tool | Source or release |
 | --- | --- |
-| Google XLS | `v0.0.0-10788-g6e55d7763`; ARM64 source build, optional Linux x64 release |
+| Google XLS | `v0.0.0-10788-g6e55d7763`; ARM64 source build, pinned Linux x64 release on AMD64 by default |
 | Yosys | 0.69, commit `143eb14f9cc55d6f8927e68523b0c9d2166ed02c`, slang and ABC enabled |
 | OpenSTA | 3.1.0 embedded in OpenROAD; source submodule `84c4d7e133d3b1a54352c97c6a5df3140c71c78c` |
-| OpenROAD | `26Q4-878-g273fa45460`; ARM64 source build with parser EOF patch, optional pinned amd64 runtime |
+| OpenROAD | `26Q4-878-g273fa45460`; source build with parser EOF patch on both architectures |
 | Nangate45 | Typical corner, 1.1 V, 25 C; SHA-256 pinned in its manifest |
 | Nangate45 physical | LEF and RC files from OpenROAD-flow-scripts commit `31ae82dc3149d5e66386317d564f47c672ddb1d8` |
 
-Manifest paths are relative to this project. Versioned installations and
-their stable symlinks are under `tools/`. Downloads and built runtimes are
-local artifacts; keep the manifests, scripts, Docker setup, and documentation
-in version control.
+The manifests in `config/tools/` describe source/release inputs. Docker
+installs tools and libraries under `/opt/eda/` and writes runtime manifests
+with executable checksums under `/opt/eda/manifests/`. BuildKit caches keep
+downloads and compilation outputs inside Docker; test outputs go to `build/`.
 
 ## Docker execution and tool tests
 

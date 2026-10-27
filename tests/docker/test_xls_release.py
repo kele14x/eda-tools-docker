@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,42 @@ with mock.patch.object(sys, 'path', [str(ROOT / 'docker'), *sys.path]):
 
 
 class XLSReleaseTest(unittest.TestCase):
+    @unittest.skipUnless(hasattr(tarfile, 'data_filter'),
+                         'Release extraction needs tar data filters, available in the Docker image')
+    def test_installs_verified_release_and_records_runtime_checksums(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            source = folder / 'release'
+            source.mkdir()
+            executable = source / 'interpreter_main'
+            executable.write_bytes(b'XLS executable fixture')
+            executable.chmod(0o755)
+            (source / 'stdlib.x').write_text('stdlib fixture')
+            archive = folder / '.cache/xls-releases/xls-test-linux-x64.tar.gz'
+            archive.parent.mkdir(parents=True)
+            with tarfile.open(archive, 'w:gz') as output:
+                output.add(source, arcname=archive.name.removesuffix('.tar.gz'))
+            info = json.loads((ROOT / 'config/tools/xls-install.json').read_text())
+            info.update(archive=archive.name, sha256=hashlib.sha256(archive.read_bytes()).hexdigest())
+            manifest = folder / 'xls-install.json'
+            manifest.write_text(json.dumps(info))
+            with mock.patch.object(INSTALLER, 'ROOT', folder), \
+                 mock.patch.object(INSTALLER, 'MANIFEST', manifest), \
+                 mock.patch.object(INSTALLER.platform, 'machine', return_value='x86_64'), \
+                 mock.patch.object(INSTALLER.Path, 'home', return_value=folder), \
+                 mock.patch.object(INSTALLER.subprocess, 'run') as download:
+                INSTALLER.main()
+            download.assert_not_called()
+            installed = folder / 'xls'
+            self.assertEqual((installed / 'stdlib.x').read_text(), 'stdlib fixture')
+            self.assertTrue(os.access(installed / 'interpreter_main', os.X_OK))
+            output = json.loads(manifest.read_text())
+            self.assertEqual(output['variant'], 'binary-release')
+            self.assertEqual(output['installed_directory'], str(installed))
+            self.assertEqual(output['sha256'], info['sha256'])
+            self.assertEqual(output['binary_sha256'], {
+                'interpreter_main': hashlib.sha256(executable.read_bytes()).hexdigest()})
+
     def test_rejects_arm64_before_reading_manifest(self):
         with mock.patch.object(INSTALLER.platform, 'machine', return_value='aarch64'):
             with self.assertRaisesRegex(SystemExit, 'requires Linux AMD64'):

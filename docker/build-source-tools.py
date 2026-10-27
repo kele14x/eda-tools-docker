@@ -12,7 +12,6 @@ from runtime_checksums import file_sha256, tree_sha256
 
 ROOT = Path('/opt/eda')
 MANIFESTS = ROOT / 'manifests'
-SOURCE_CONFIG = json.loads((MANIFESTS / 'source-build.json').read_text())
 
 
 def run(*args, cwd=None):
@@ -50,10 +49,8 @@ def checkout(tool, info, commit):
 
 
 def record(tool, info, build):
-    # Keep source identities, but never label native outputs with x86 checksums.
-    for key in ('source_image', 'source_tag', 'archive', 'archive_prefix', 'archive_size_bytes',
-                'download_url', 'sha256', 'binary_sha256', 'abc_binary_sha256',
-                'runtime_tree_sha256', 'source_directory', 'build_directory'):
+    # Source archive checksums describe inputs; hash installed outputs below.
+    for key in ('archive', 'archive_size_bytes', 'download_url', 'sha256'):
         info.pop(key, None)
     info.update(platform='linux-arm64' if platform.machine() == 'aarch64' else 'linux-x64',
                 variant='source-build', installed_directory=str(ROOT / tool), build=build)
@@ -83,12 +80,13 @@ def bazel(source, jobs, *args):
 
 def main():
     tool = sys.argv[1]
+    source_config = json.loads((MANIFESTS / 'source-build.json').read_text())
     if tool == 'bootstrap':
         arch = sys.argv[2]
-        version = SOURCE_CONFIG['bazelisk_version']
+        version = source_config['bazelisk_version']
         destination = Path('/var/cache/eda') / f'bazelisk-{version}-linux-{arch}'
         download(f'https://github.com/bazelbuild/bazelisk/releases/download/v{version}/bazelisk-linux-{arch}',
-                 destination, SOURCE_CONFIG['bazelisk_sha256'][arch])
+                 destination, source_config['bazelisk_sha256'][arch])
         run('install', '-m', '755', destination, '/usr/local/bin/bazelisk')
         return
     if tool == 'libraries':
@@ -156,7 +154,7 @@ def main():
         record(tool, info, {'system': 'cmake', 'jobs': jobs, 'source_archive_sha256': source_checksum,
                             'cmake_options': options})
     elif tool == 'xls':
-        info['commit'] = SOURCE_CONFIG['xls_commit']
+        info['commit'] = source_config['xls_commit']
         source = checkout(tool, info, info['commit'])
         arch = 'arm64' if platform.machine() == 'aarch64' else 'x64'
         bazel(source, jobs, '//dist:xls_dist_tar', '--//dist:os=linux', f'--//dist:arch={arch}',

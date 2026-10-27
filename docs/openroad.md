@@ -1,13 +1,14 @@
 # OpenROAD toolchain
 
-For native Apple Silicon execution, [build the Linux ARM64 source image](arm64-docker.md).
-It builds the same pinned OpenROAD/OpenSTA sources inside Docker. The installation
-instructions below describe the existing AMD64 binary image.
+Both ARM64 and AMD64 build OpenROAD/OpenSTA from pinned sources inside
+`docker/Dockerfile.source`. See [ARM64 Docker](arm64-docker.md) for Apple
+Silicon build caching and memory controls, or [WSL containers](wsl-containers.md)
+for Windows.
 
 OpenROAD `26Q4-878-g273fa45460` is pinned to upstream commit
 [`273fa45460509e46b8255684622a5da33a1c8731`](https://github.com/The-OpenROAD-Project/OpenROAD/commit/273fa45460509e46b8255684622a5da33a1c8731)
-from October 22, 2026. This is an upstream development snapshot, packaged from
-the official `openroad/ubuntu24.04` amd64 image. No local patches are applied.
+from October 22, 2026. This is an upstream development snapshot built with
+`docker/openroad-parser-eof.patch` on both architectures.
 OpenSTA 3.1.0 is embedded in this executable and supplies timing and power
 analysis. Its source revision and runtime version are recorded under
 `embedded_opensta` in the OpenROAD manifest. See [timing and power](opensta.md)
@@ -18,24 +19,29 @@ for migrating standalone OpenSTA scripts, including the required LEF inputs.
 From this repository:
 
 ```bash
-python3 scripts/install-openroad.py
-EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
-EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
+./scripts/build-docker-tools.sh
+python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
-EDA_IMAGE=local/eda-tools:amd64 openroad -version
+openroad -version
 ```
 
-The installer downloads the 63 MB runtime layer from Docker Hub using an
-anonymous registry token. It does not require a Docker daemon or account.
-`config/tools/openroad-install.json` pins the source image digest, runtime
-layer checksum, source commit, binary checksum, and complete installed tree
-checksum. Only `OpenROAD/install` is extracted; development sources and
-build dependencies are excluded. Cached downloads are verified before reuse,
-and an existing installation with a mismatched checksum is rejected.
+The build defaults to ARM64. To build and select AMD64 instead:
 
-The versioned runtime lives under `tools/`, with `tools/openroad` as its
-stable symlink. `docker/bin/openroad` runs the packaged tool in Docker and
-preserves the calling project's working directory. For example:
+```bash
+EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
+export EDA_IMAGE=local/eda-tools:amd64
+```
+
+`config/tools/openroad-install.json` pins the OpenROAD source commit and
+embedded OpenSTA revision. The build verifies those revisions, applies the
+parser patch, and compiles OpenROAD with Bazel. The image records build
+options, the patch checksum, executable checksum, and complete runtime tree
+checksum in `/opt/eda/manifests/openroad-install.json`. Development sources
+and build dependencies remain in the build stages.
+
+OpenROAD is installed at `/opt/eda/openroad` inside the image.
+`docker/bin/openroad` runs it in Docker and preserves the calling project's
+working directory. For example:
 
 ```bash
 openroad -no_init -exit -threads 2 place.tcl
@@ -80,8 +86,8 @@ The Liberty file at that revision has the same SHA-256 as this repository's
 existing typical-corner library. The installer and Docker build verify that
 the two installations agree.
 
-The physical files are installed at `tools/nangate45-physical` and packaged
-at `/opt/eda/nangate45-physical`. Docker sets these variables:
+The build downloads and verifies the physical files inside Docker and
+installs them at `/opt/eda/nangate45-physical`. Docker sets these variables:
 
 | Variable | File |
 | --- | --- |
@@ -137,9 +143,9 @@ OpenDB round trip. The Docker suite additionally places a synthesized adder,
 checks dynamic linking, and exercises launchers from paths containing spaces.
 These are installation tests, not physical-design signoff.
 
-To update OpenROAD, select an immutable amd64 image digest, identify its
-installation layer, verify its contents, refresh the manifest checksums,
-and update the versioned paths in `Dockerfile` and `.dockerignore`. Run the
-installer and integration checks before selecting the new image. Do not
-replace the pinned image with `latest`. Upstream source-build instructions
-are in the [OpenROAD installation guide](https://openroad.readthedocs.io/en/latest/user/Build.html).
+To update OpenROAD, change its pinned source commit/version and the embedded
+OpenSTA revision in `config/tools/openroad-install.json`. Check whether the
+parser patch is still needed and applies cleanly, rebuild the image, and run
+the integration checks before selecting it. Executable and runtime tree
+checksums are generated automatically inside the image. Upstream build
+instructions are in the [OpenROAD installation guide](https://openroad.readthedocs.io/en/latest/user/Build.html).

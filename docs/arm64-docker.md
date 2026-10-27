@@ -16,9 +16,9 @@ Build from this checkout with OrbStack running:
 ```
 
 This creates the default `local/eda-tools:arm64` using `docker/Dockerfile.source`
-and tags the same image as `local/eda-tools:v1` for compatibility. Unlike the AMD64 packaging build, it
-does not need `tools/` or `downloads/`: source code and the checksum-pinned
-Nangate45 files are fetched inside Docker.
+and tags the same image as `local/eda-tools:v1` for compatibility. AMD64 uses
+the same Dockerfile. Both builds fetch sources, releases, and checksum-pinned
+Nangate45 files inside Docker, with no host tool installations required.
 
 The Dockerfile defaults to `XLS_INSTALL_MODE=auto`: ARM64 builds XLS from source,
 while AMD64 downloads the checksum-pinned XLS release. To compile XLS from
@@ -77,14 +77,14 @@ and [XLS builds](https://google.github.io/xls/).
 
 Source builds generate their own `/opt/eda/manifests/*-install.json` inside
 the image, recording native executable hashes, build options, and source
-identities. Host AMD64 manifests and binaries remain intact. These output
-hashes describe this build; they are not prepublished upstream checksums.
+identities. The repository manifests describe build inputs; the image's
+output hashes describe this build and are not prepublished upstream checksums.
 Ubuntu apt dependencies are resolved at build time, so the build is pinned
 at the tool-source level rather than bit-for-bit reproducible.
 Simulator and C++ toolchain package versions are recorded separately in
 `/opt/eda/manifests/simulation-packages.txt` inside the image.
 
-To build and select the optional AMD64 image from the host installations:
+To build and select AMD64 with the same source Dockerfile:
 
 ```bash
 EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh

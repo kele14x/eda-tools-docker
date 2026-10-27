@@ -115,18 +115,24 @@ else:
         self.assertIn('BUILD_JOBS=2', arguments)
         self.assertIn('--progress=plain', arguments)
 
-    def test_legacy_build_and_custom_image(self):
-        result = self.invoke('scripts/build-docker-tools.sh', EDA_PLATFORM='linux/amd64',
+    def test_amd64_source_build_and_custom_image(self):
+        result = self.invoke('scripts/build-docker-tools.sh', '--build-arg', 'XLS_INSTALL_MODE=source',
+                             EDA_PLATFORM='linux/amd64',
                              EDA_IMAGE='custom:tag')
+        self.assertEqual(result.returncode, 0, result.stderr)
         arguments = json.loads(result.stdout)
-        self.assertEqual(arguments[arguments.index('--file') + 1], str(ROOT / 'Dockerfile'))
+        self.assertEqual(arguments[arguments.index('--file') + 1], str(ROOT / 'docker/Dockerfile.source'))
         self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/amd64')
         self.assertEqual(arguments[arguments.index('--tag') + 1], 'custom:tag')
         self.assertNotIn('local/eda-tools:v1', arguments)
+        self.assertIn('XLS_INSTALL_MODE=source', arguments)
 
-    def test_amd64_build_keeps_native_default_tag(self):
+    def test_amd64_source_build_uses_amd64_tag(self):
         result = self.invoke('scripts/build-docker-tools.sh', EDA_PLATFORM='linux/amd64')
+        self.assertEqual(result.returncode, 0, result.stderr)
         arguments = json.loads(result.stdout)
+        self.assertEqual(arguments[arguments.index('--file') + 1], str(ROOT / 'docker/Dockerfile.source'))
+        self.assertEqual(arguments[arguments.index('--platform') + 1], 'linux/amd64')
         self.assertEqual(arguments[arguments.index('--tag') + 1], 'local/eda-tools:amd64')
         self.assertNotIn('local/eda-tools:v1', arguments)
 

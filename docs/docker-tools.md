@@ -6,17 +6,17 @@ Silicon: see [ARM64 Docker](arm64-docker.md). Build it with
 `local/eda-tools:v1` for compatibility. The launchers support both
 architectures; reinstall older copies that force AMD64.
 
-The optional root `Dockerfile` packages the existing pinned Linux amd64 installations
-on Ubuntu 24.04. It includes XLS and the DSLX standard library, Yosys 0.69
-with slang and ABC, OpenROAD `26Q4-878-g273fa45460` with embedded OpenSTA 3.1.0, and
-Nangate45 timing/physical libraries.
-It copies the installation manifests and checks the recorded Yosys, ABC,
-OpenROAD, and library SHA-256 hashes during the image build.
-OpenROAD runtime contents and all pinned LEF/RC/license files are verified
-too. XLS's release archive checksum is recorded in its manifest; individual XLS executable
-checksums are not supplied by that manifest.
+Both architectures use `docker/Dockerfile.source` on Ubuntu 24.04. It compiles
+Yosys 0.69 with slang/ABC and OpenROAD `26Q4-878-g273fa45460` with embedded
+OpenSTA 3.1.0 from pinned sources, and downloads the pinned Nangate45
+timing/physical libraries. XLS and its DSLX standard library are built from
+source on ARM64; AMD64 uses the checksum-pinned XLS release by default.
+Pass `--build-arg XLS_INSTALL_MODE=source` to compile XLS on AMD64 too.
+The build records executable and OpenROAD tree checksums in runtime
+manifests and verifies them, along with the pinned LEF/RC/license files,
+before completing the image. Host tool installations are not required.
 
-Both variants also install Icarus Verilog (`iverilog` and `vvp`), Verilator,
+Both architectures also install Icarus Verilog (`iverilog` and `vvp`), Verilator,
 `build-essential`, and zlib development headers from Ubuntu 24.04. Keeping
 the C++ compiler and Make in the runtime image lets Verilator build executable
 simulations with `--binary` or `--cc --exe --build`. Package versions are
@@ -208,16 +208,15 @@ then install the launchers there and set `EDA_IMAGE` to that registry tag or
 digest. Projects can pin a digest for an immutable tool selection. No image
 is published by the build or installation scripts.
 
-The optional AMD64 image packages already-built binaries. Build it using
-`EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh`; its tag is
-`local/eda-tools:amd64`. To update a tool
-in that image, rebuild or download the desired amd64
-installation, update its manifest, update the explicit versioned paths in
-`Dockerfile` and `.dockerignore`, and build and test a new tag. The Ubuntu
-base tag and runtime package versions can receive updates between builds;
-pin a base digest and package snapshot if rebuilds must be identical.
-The ARM64 image builds the pinned tool sources inside Docker as described in
-the [native build guide](arm64-docker.md).
+Build AMD64 with `EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh`;
+its tag is `local/eda-tools:amd64`. ARM64 defaults to `local/eda-tools:arm64`.
+Both use the same source Dockerfile and input manifests. To update a tool,
+change its source/release pins in `config/tools/`, build a new image, and
+run the integration tests. Runtime executable checksums are generated
+automatically. The Ubuntu base tag and runtime package versions can receive
+updates between builds; pin a base digest and package snapshot if rebuilds
+must be identical. See the [native build guide](arm64-docker.md) for build
+caching and memory controls.
 
 To uninstall the Mac launchers, remove `eda`, `xls`, `yosys`, `sta`, `openroad`,
 `iverilog`, `vvp`, and `verilator` from the chosen installation directory.

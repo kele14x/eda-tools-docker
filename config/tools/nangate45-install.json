@@ -6,9 +6,6 @@
   "voltage_v": 1.1,
   "temperature_c": 25,
   "filename": "NangateOpenCellLibrary_typical.lib",
-  "download_path": "downloads/nangate45-8d540a4d4cf6-typical.lib",
   "size_bytes": 6692032,
-  "sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1",
-  "installed_directory": "tools/nangate45-8d540a4d4cf6",
-  "library_path": "tools/nangate45/NangateOpenCellLibrary_typical.lib"
+  "sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1"
 }
