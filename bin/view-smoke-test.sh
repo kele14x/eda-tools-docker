@@ -18,21 +18,14 @@ if [[ ! "$port" =~ ^[0-9]+$ ]] || (( 10#$port < 1024 || 10#$port > 65535 )); the
     exit 2
 fi
 
-# Also find viewers launched before the repository rename.
-for viewer in "$container" xls-tools-openroad-viewer; do
-    viewer_label_key="$label_key"
-    if [[ "$viewer" != "$container" ]]; then
-        viewer_label_key=local.xls-tools.viewer
+if "${docker_cmd[@]}" container inspect "$container" >/dev/null 2>&1; then
+    label="$("${docker_cmd[@]}" inspect --format "{{index .Config.Labels \"$label_key\"}}" "$container")"
+    if [[ "$label" != "$container" ]]; then
+        echo "Refusing to stop an unrelated container: $container" >&2
+        exit 1
     fi
-    if "${docker_cmd[@]}" container inspect "$viewer" >/dev/null 2>&1; then
-        label="$("${docker_cmd[@]}" inspect --format "{{index .Config.Labels \"$viewer_label_key\"}}" "$viewer")"
-        if [[ "$label" != "$viewer" ]]; then
-            echo "Refusing to stop an unrelated container: $viewer" >&2
-            exit 1
-        fi
-        "${docker_cmd[@]}" stop "$viewer" >/dev/null
-    fi
-done
+    "${docker_cmd[@]}" stop "$container" >/dev/null
+fi
 if [[ "${1:-}" == --stop ]]; then
     echo 'Stopped the OpenROAD smoke-test viewer.'
     exit 0

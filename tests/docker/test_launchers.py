@@ -1,4 +1,4 @@
-"""Check architecture selection without requiring a Docker engine."""
+"""Check launcher installation and architecture selection without a Docker engine."""
 
 import json
 import os
@@ -8,6 +8,44 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+TOOLS = ('eda', 'xls', 'yosys', 'sta', 'openroad', 'iverilog', 'vvp', 'verilator')
+
+
+class LauncherInstallTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='eda launcher install ')
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name).resolve()
+
+    def install(self):
+        return subprocess.run([str(ROOT / 'scripts/install-docker-tools.sh'), str(self.folder)],
+                              capture_output=True, text=True)
+
+    def check_installed(self):
+        for tool in TOOLS:
+            with self.subTest(tool=tool):
+                self.assertEqual((self.folder / tool).read_bytes(),
+                                 (ROOT / 'docker/bin' / tool).read_bytes())
+                self.assertTrue(os.access(self.folder / tool, os.X_OK))
+
+    def test_installs_and_reinstalls_launchers(self):
+        for _ in range(2):
+            result = self.install()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.check_installed()
+
+    def test_refuses_unrelated_command_before_changing_any_launchers(self):
+        managed = ('#!/usr/bin/env bash\n'
+                   '# Managed by eda-tools-docker; installed by scripts/install-docker-tools.sh.\n'
+                   'exit 0\n')
+        (self.folder / 'eda').write_text(managed)
+        (self.folder / 'yosys').write_text('unrelated command\n')
+        result = self.install()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('Refusing to overwrite an unrelated command', result.stderr)
+        self.assertEqual((self.folder / 'eda').read_text(), managed)
+        self.assertEqual((self.folder / 'yosys').read_text(), 'unrelated command\n')
+        self.assertEqual({path.name for path in self.folder.iterdir()}, {'eda', 'yosys'})
 
 
 class DockerPlatformTest(unittest.TestCase):
