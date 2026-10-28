@@ -1,39 +1,47 @@
 # EDA Tools Docker
 
-Docker toolchain with Google XLS, Yosys with slang/ABC, OpenROAD with embedded
-OpenSTA, Nangate45 timing/physical libraries, and Icarus Verilog and Verilator
-for RTL simulation and linting. This project owns
-the source/release pins, Docker build, launchers, tool documentation, and
-integration tests. Both ARM64 and AMD64 use `docker/Dockerfile.source`.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platforms: linux/arm64 | linux/amd64](https://img.shields.io/badge/platforms-linux%2Farm64%20%7C%20linux%2Famd64-informational)](#quick-start)
 
-## Layout
+> A reproducible Docker toolchain for digital design and verification:
+> XLS/DSLX, Yosys with slang/ABC, OpenROAD with embedded OpenSTA,
+> Nangate45 timing/physical libraries, and Icarus Verilog/Verilator.
 
-```text
-eda-tools-docker/
-├── docker/           # Shared source Dockerfile, entrypoint, and launchers
-├── config/tools/     # Source/release pins, build options, and input checksums
-├── scripts/          # Image build, smoke test/viewer, and launcher installation
-├── tests/smoke/      # DSLX adder and Nangate45 synthesis/routing fixtures
-├── tests/tools/      # OpenSTA activity and OpenROAD placement tests
-├── docs/             # Docker usage and source rebuild instructions
-└── build/            # Test logs and generated artifacts (ignored)
-```
+This repository owns the source and release pins, Docker build, launchers,
+tool documentation, and integration tests. Both ARM64 and AMD64 images are
+built from `docker/Dockerfile.source`.
 
-## Windows with WSL containers
+- **Reproducible** — source/release pins and SHA-256 checksums are versioned
+  in `config/tools/`, and runtime manifests are verified during the build.
+- **Native images** — Linux ARM64 and AMD64 builds avoid instruction
+  translation on matching hosts.
+- **Portable** — launchers work from any project directory and do not depend
+  on this checkout.
+- **Verified** — integration tests exercise the flow from DSLX through
+  routed OpenROAD layout.
 
-Use `wslc` to build a native AMD64 image. It compiles OpenROAD/Yosys from
-source and automatically downloads the checksum-pinned XLS release.
-See [WSL containers](docs/wsl-containers.md) for PowerShell build commands,
-XLS source-build selection, and the full smoke test.
+## At a glance
 
-## Docker on macOS
+| Component | Included |
+| --- | --- |
+| Design | Google XLS (DSLX, IR, Verilog codegen) |
+| Synthesis | Yosys 0.69 with slang and ABC |
+| Place and route | OpenROAD with embedded OpenSTA |
+| PDK | Nangate45 timing and physical libraries |
+| Simulation and lint | Icarus Verilog (`iverilog`/`vvp`) and Verilator |
+| Platforms | Linux ARM64 (Apple Silicon) and Linux AMD64 (Linux/WSL containers) |
+| Launchers | `eda`, `xls`, `yosys`, `sta`, `openroad`, `iverilog`, `vvp`, `verilator` |
 
-The default toolchain is native Linux ARM64 for Apple Silicon. Clone the
-repository, then build from the pinned sources with OrbStack running and
-install the launchers:
+## Quick start
+
+Requirements: Docker (OrbStack on macOS), Git, and Python 3. Windows users can build with `wslc`; see [WSL containers](docs/wsl-containers.md).
+
+### Apple Silicon (macOS + OrbStack)
+
+With OrbStack running, clone the repository and build from the pinned sources:
 
 ```bash
-git clone git@github.com:kele14x/eda-tools-docker.git
+git clone https://github.com/kele14x/eda-tools-docker.git
 cd eda-tools-docker
 ./scripts/build-docker-tools.sh --progress=plain
 python3 scripts/test-docker-tools.py --expected-architecture arm64 \
@@ -43,12 +51,20 @@ python3 scripts/test-docker-tools.py --expected-architecture arm64 \
 ```
 
 This builds `local/eda-tools:arm64` and gives the same image the compatibility
-tag `local/eda-tools:v1`. The launchers select ARM64 without environment overrides.
-The first source build is substantial; see [ARM64 Docker](docs/arm64-docker.md)
-for memory controls, caching, provenance, and image selection. Reinstall existing
-launchers to remove their old AMD64 constraint.
+tag `local/eda-tools:v1`. The launchers use this image by default without
+environment overrides.
 
-To build the AMD64 image with the same Dockerfile:
+`install-docker-tools.sh` places the launchers in `~/.local/bin`, so make sure
+that directory is on `PATH`. In an existing zsh session, run `rehash` after
+installation. Reinstall any older launchers to remove their previous AMD64
+constraint.
+
+The first source build is substantial. See [ARM64 Docker](docs/arm64-docker.md)
+for memory controls, caching, provenance, and image selection.
+
+### AMD64 (Linux or WSL containers)
+
+Build the AMD64 image with the same Dockerfile:
 
 ```bash
 EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
@@ -56,18 +72,21 @@ EDA_IMAGE=local/eda-tools:amd64 ./scripts/run-smoke-test.sh
 EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
-The AMD64 build uses `local/eda-tools:amd64`. Both architectures compile
-OpenROAD and Yosys inside Docker. XLS builds from source on ARM64 and uses
-the checksum-pinned release on AMD64; pass `--build-arg XLS_INSTALL_MODE=source`
-to compile XLS on AMD64 too. No host tool installations or downloads are required.
-The launcher installer places `eda`, `xls`, `yosys`, `sta`, `openroad`,
-`iverilog`, `vvp`, and `verilator`
-in `~/.local/bin`. The installed commands
-preserve the calling project's working directory and do not depend on this checkout.
-Ensure that directory is on `PATH`; use `rehash` in an existing zsh after
-installation.
+Both architectures compile OpenROAD and Yosys inside Docker. XLS builds from
+source on ARM64 and uses the checksum-pinned release on AMD64. Pass
+`--build-arg XLS_INSTALL_MODE=source` to compile XLS on AMD64 too. No host
+tool installations or downloads are required.
 
-From any hardware project:
+When using the installed launchers on AMD64, set
+`EDA_IMAGE=local/eda-tools:amd64` in your environment.
+
+On Windows, use `wslc` to build the native AMD64 image. See
+[WSL containers](docs/wsl-containers.md) for PowerShell build commands, XLS
+source-build selection, and the full smoke test.
+
+## Use the toolchain
+
+After installing the launchers, run commands from any hardware project:
 
 ```bash
 xls interpreter_main src/design.x
@@ -79,44 +98,75 @@ vvp simulation.vvp
 verilator --lint-only --top-module top src/top.sv
 ```
 
-The image contains the DSLX standard library, Yosys runtime data and ABC,
-OpenROAD with embedded OpenSTA, `/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`,
-and the Nangate45 LEF/RC files under `/opt/eda/nangate45-physical/`.
-Both architectures include Ubuntu's Icarus Verilog (`iverilog`/`vvp`),
-Verilator, and a C++ compiler, Make, and zlib headers for building simulations.
+The launchers preserve the calling project's working directory and do not
+depend on this repository checkout.
+
+### What is in the image
+
+- The DSLX standard library, Yosys runtime data, and ABC.
+- OpenROAD with embedded OpenSTA.
+- Nangate45 Liberty at
+  `/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`.
+- Nangate45 LEF/RC files under `/opt/eda/nangate45-physical/`.
+- Ubuntu's Icarus Verilog, Verilator, and the C++ compiler, Make, and zlib
+  headers needed to build simulations.
+
 Simulator package versions are recorded at build time in
-`/opt/eda/manifests/simulation-packages.txt`; these packages follow Ubuntu
+`/opt/eda/manifests/simulation-packages.txt`. These packages follow Ubuntu
 24.04 repositories rather than pinned upstream source commits.
-Select another image using `EDA_IMAGE`, another Docker context using
-`EDA_DOCKER_CONTEXT`, or a common parent mount using `EDA_PROJECT_ROOT`.
-See [the Docker guide](docs/docker-tools.md) for full usage and sharing.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EDA_IMAGE` | `local/eda-tools:arm64` | Image used by the launchers |
+| `EDA_DOCKER_CONTEXT` | `orbstack` | Docker context |
+| `EDA_PLATFORM` | Detected from the image (build: `linux/arm64`) | Override the Docker platform |
+| `EDA_PROJECT_ROOT` | Current directory | Parent directory to mount; must contain the current directory |
+| `EDA_BUILD_JOBS` | `4` | Parallel compile jobs during the image build |
+| `OPENROAD_VIEWER_PORT` | `8080` | Port for the smoke-test layout viewer |
+
+See [the Docker guide](docs/docker-tools.md) for full usage, sharing, and
+environment details.
 
 ## XLS-to-routing smoke test
 
-Run `./scripts/run-smoke-test.sh` to check the existing Docker image with the
-small adder in `tests/smoke/simple_add.x`. The launcher works from any
-directory and runs the whole flow in one container using the selected image. It uses this
-checkout's Docker launcher and does not require globally installed wrappers.
+Run the complete flow against the existing Docker image using the small adder
+in `tests/smoke/simple_add.x`:
 
-The test checks addition, zero, overflow, and 100 commutativity cases with
-seed 42 using the DSLX interpreter, IR interpreter, and LLVM JIT. It then
-converts and optimizes XLS IR and generates one-stage pipelined Verilog and
-a module signature. With the default input/output registers, the signature
-reports latency two and initiation interval one.
+```bash
+./scripts/run-smoke-test.sh
+```
 
-Icarus Verilog and Verilator each compile and run the generated RTL against
-`tests/smoke/simple_add_tb.sv`. Both must pass six addition cases, including
-zero and 32-bit overflow, and produce a VCD waveform. A mismatch or timeout
-fails the smoke test; Verilator also exercises C++ compilation and tracing.
+The launcher works from any directory and runs the whole flow in one container
+using the selected image. It uses this checkout's Docker launcher and does not
+require globally installed wrappers.
 
-Yosys maps the generated adder to Nangate45 cells. OpenROAD creates a
-floorplan, places pins and cells, synthesizes a clock tree for the 96 pipeline
-flops, and performs global and detailed signal/clock routing on metal2–metal6.
-The test requires legal placement, zero detailed-routing DRCs, and routes on
-all multi-pin signal/clock nets. A fresh OpenROAD process reloads the routed
-database and checks the pipeline flops, clock buffers, and routing again.
+### What it verifies
 
-Artifacts go to `build/simple_add/`:
+1. **DSLX correctness** — addition, zero, overflow, and 100 commutativity cases
+   with seed 42, using the DSLX interpreter, IR interpreter, and LLVM JIT.
+2. **RTL generation** — converts and optimizes XLS IR, then generates
+   one-stage pipelined Verilog and a module signature. With the default
+   input/output registers, the signature reports latency two and initiation
+   interval one.
+3. **RTL simulation** — Icarus Verilog and Verilator each compile and run the
+   generated RTL against `tests/smoke/simple_add_tb.sv`. Both must pass six
+   addition cases, including zero and 32-bit overflow, and produce a VCD
+   waveform. A mismatch or timeout fails the test; Verilator also exercises
+   C++ compilation and tracing.
+4. **Cell mapping** — Yosys maps the generated adder to Nangate45 cells.
+5. **Placement and routing** — OpenROAD creates a floorplan, places pins and
+   cells, synthesizes a clock tree for the 96 pipeline flops, and performs
+   global and detailed signal/clock routing on metal2–metal6. The test requires
+   legal placement, zero detailed-routing DRCs, and routes on all multi-pin
+   signal/clock nets.
+6. **Reload check** — a fresh OpenROAD process reloads the routed database and
+   verifies the pipeline flops, clock buffers, and routing again.
+
+### Artifacts
+
+Outputs are written to `build/simple_add/`:
 
 | Stage | Outputs |
 | --- | --- |
@@ -129,16 +179,24 @@ Artifacts go to `build/simple_add/`:
 
 An empty `route-drc.rpt` means no detailed-routing violations were found.
 Timing and power reports use global-route RC estimates with a 5 ns clock.
+
 This smoke test exercises signal and clock routing; power-grid construction,
-GDS export, and signoff are separate flow work. Select another image or
-context using `EDA_IMAGE` or `EDA_DOCKER_CONTEXT`.
+GDS export, and signoff are separate flow work.
 
-To view the routed layout, run `./scripts/view-smoke-test.sh` and open
-[http://localhost:8080](http://localhost:8080). It loads the DEF and Nangate45
-libraries in OpenROAD's browser GUI. Stop it with
-`./scripts/view-smoke-test.sh --stop`.
+### View the routed layout
 
-## Pinned tool sources and releases
+```bash
+./scripts/view-smoke-test.sh
+```
+
+Open [http://localhost:8080](http://localhost:8080) to load the DEF and
+Nangate45 libraries in OpenROAD's browser GUI. Stop the viewer with:
+
+```bash
+./scripts/view-smoke-test.sh --stop
+```
+
+## Pinned sources and releases
 
 | Tool | Source or release |
 | --- | --- |
@@ -154,24 +212,59 @@ installs tools and libraries under `/opt/eda/` and writes runtime manifests
 with executable checksums under `/opt/eda/manifests/`. BuildKit caches keep
 downloads and compilation outputs inside Docker; test outputs go to `build/`.
 
-## Docker execution and tool tests
+## Repository layout
+
+```text
+eda-tools-docker/
+├── docker/           # Shared source Dockerfile, entrypoint, and launchers
+├── config/tools/     # Source/release pins, build options, and input checksums
+├── scripts/          # Image build, smoke test/viewer, and launcher installation
+├── tests/smoke/      # DSLX adder and Nangate45 synthesis/routing fixtures
+├── tests/tools/      # OpenSTA activity and OpenROAD placement tests
+├── docs/             # Docker usage and source rebuild instructions
+└── build/            # Test logs and generated artifacts (ignored)
+```
+
+## Docker execution and tests
 
 All tools run inside Docker through the launchers in `docker/bin/`, which
 preserve your working directory. The launcher installer copies them into
-`~/.local/bin` for use from other projects. Source rebuild instructions are
-in [Yosys](docs/yosys.md). OpenROAD installation and physical library usage
-are covered in [OpenROAD](docs/openroad.md). The `sta` command forwards to OpenROAD; existing
-timing scripts need LEF inputs as described in [timing and power](docs/opensta.md).
+`~/.local/bin` for use from other projects.
 
 The standalone Docker test script covers the toolchain from an unrelated
 temporary project, including simulation of XLS-generated RTL with both Icarus
-and Verilator, waveform output, placement of an XLS/Yosys-generated adder,
-and OpenDB reload. The OpenSTA activity and OpenROAD placement tests also
-use Docker and the image's bundled Nangate45 libraries:
+and Verilator, waveform output, placement of an XLS/Yosys-generated adder, and
+OpenDB reload:
+
+```bash
+python3 scripts/test-docker-tools.py
+```
+
+The OpenSTA activity and OpenROAD placement tests also use Docker and the
+image's bundled Nangate45 libraries:
 
 ```bash
 python3 -m unittest discover -s tests/tools -p 'test_*.py' -v
 ```
+
+Source rebuild instructions are in [Yosys](docs/yosys.md). OpenROAD
+installation and physical library usage are covered in
+[OpenROAD](docs/openroad.md). The `sta` command forwards to OpenROAD; existing
+timing scripts need LEF inputs as described in
+[timing and power](docs/opensta.md).
+
+## Documentation
+
+- [Docker usage](docs/docker-tools.md) — launchers, sharing, and environment
+  variables.
+- [ARM64 Docker](docs/arm64-docker.md) — native Apple Silicon builds, memory
+  controls, caching, and provenance.
+- [WSL containers](docs/wsl-containers.md) — Windows PowerShell builds and
+  smoke tests.
+- [Yosys](docs/yosys.md) — source rebuild instructions.
+- [OpenROAD](docs/openroad.md) — installation and physical library usage.
+- [Timing and power](docs/opensta.md) — OpenSTA through OpenROAD and LEF
+  requirements.
 
 ## License
 
