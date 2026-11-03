@@ -1,9 +1,10 @@
 # Yosys toolchain
 
-The Docker image uses an unmodified Yosys 0.69 source release, with the
+The Docker image uses an unmodified Yosys 0.69 source tree, with the
 bundled sv-elab/slang frontend and ABC enabled.
-`config/tools/yosys-install.json` pins the source archive checksum, source
-and dependency revisions, and build options. The source image compiles
+`config/tools/yosys-install.json` pins the source and dependency revisions
+and the build options; the build checks out the pinned commit and verifies
+every submodule revision against it. The source image compiles
 Yosys inside Docker and records the installed executable checksums in
 `/opt/eda/manifests/yosys-install.json`.
 

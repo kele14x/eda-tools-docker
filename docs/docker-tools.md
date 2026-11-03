@@ -8,10 +8,14 @@ architectures; reinstall older copies that force AMD64.
 
 Both architectures use `docker/Dockerfile.source` on Ubuntu 24.04. It compiles
 Yosys 0.69 with slang/ABC and OpenROAD `26Q4-878-g273fa45460` with embedded
-OpenSTA 3.1.0 from pinned sources, and downloads the pinned Nangate45
-timing/physical libraries. XLS and its DSLX standard library are built from
+OpenSTA 3.1.0 from pinned sources, and downloads the pinned ASAP7 TT/RVT and
+Nangate45 timing/physical libraries. XLS and its DSLX standard library are built from
 source on ARM64; AMD64 uses the checksum-pinned XLS release by default.
 Pass `--build-arg XLS_INSTALL_MODE=source` to compile XLS on AMD64 too.
+The default build first prepares a local dependency image online, then compiles
+and verifies with Docker networking disabled. Run
+`./scripts/build-docker-tools.sh fetch` and `./scripts/build-docker-tools.sh build`
+to separate these phases; see [the offline workflow](arm64-docker.md#fetch-online-build-offline).
 The build records executable and OpenROAD tree checksums in runtime
 manifests and verifies them, along with the pinned LEF/RC/license files,
 before completing the image. Host tool installations are not required.
@@ -76,9 +80,10 @@ Logs, generated artifacts, and `results.json` are retained in the output directo
 Run `./scripts/run-smoke-test.sh` from this checkout, or invoke that script by
 absolute path from another directory. It runs `tests/smoke/simple_add.x`
 through DSLX tests and quickchecks, both IR evaluators, IR optimization,
-Verilog generation, Icarus/Verilator simulation, Yosys/ABC mapping to Nangate45,
+Verilog generation, Icarus/Verilator simulation, Yosys/ABC mapping to ASAP7,
 and OpenROAD placement, clock-tree synthesis, global routing, and detailed
-routing in one Docker container. It does not build the image; use the build
+routing in one Docker container. Pass `--platform nangate45` to map and place
+with the Nangate45 baseline instead. It does not build the image; use the build
 command above first if the image is unavailable.
 
 Both simulators compile and run `tests/smoke/simple_add_tb.sv` against the
@@ -168,14 +173,19 @@ tree is writable. Paths containing commas are not supported by Docker's
 `--mount` syntax used by these launchers. Symlink targets outside the mounted
 tree also require choosing a parent that includes the target.
 
-The bundled Liberty file is available inside the container at
-`/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib`. OpenROAD timing scripts use:
+The bundled ASAP7 TT/RVT and Nangate45 Liberty files are available inside the
+container under `/opt/eda/asap7/` and `/opt/eda/nangate45/`. An ASAP7 timing
+script uses all five Liberty files and the ASAP7 LEFs:
 
 ```tcl
-read_lef $::env(NANGATE45_TECH_LEF)
-read_lef $::env(NANGATE45_CELLS_LEF)
-read_liberty $::env(NANGATE45_LIBERTY)
+read_lef $::env(ASAP7_TECH_LEF)
+read_lef $::env(ASAP7_CELLS_LEF)
+foreach lib $::env(ASAP7_LIBERTIES) { read_liberty $lib }
 ```
+
+For Nangate45, use `NANGATE45_TECH_LEF`, `NANGATE45_CELLS_LEF`, and
+`NANGATE45_LIBERTY` instead. ASAP7 Liberty uses ps/fF units, so write a 5 ns
+clock as `-period 5000`; Nangate45 uses ns/pF.
 
 `sta` is a compatibility alias for OpenROAD, which embeds OpenSTA. The image
 has no standalone OpenSTA binary or manifest. Existing timing scripts need

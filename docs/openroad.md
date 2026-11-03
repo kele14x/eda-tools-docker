@@ -61,7 +61,8 @@ After running the smoke test:
 
 Open [http://localhost:8080](http://localhost:8080) to pan, zoom, inspect cells
 and nets, and toggle routing layers. The viewer loads `routed.def`, the
-Nangate45 technology/cell LEFs and Liberty, and `routed.sdc`. It uses
+selected platform's technology/cell LEFs and Liberty, and `routed.sdc`
+(ASAP7 by default; pass `--platform nangate45` for the fallback). It uses
 OpenROAD's built-in web interface, so macOS does not need XQuartz.
 
 The 3D Viewer tab expects a 3Dblox chiplet assembly. This single-die adder
@@ -77,14 +78,54 @@ the toolchain; `OPENROAD_VIEWER_PORT` selects another host port.
 ./scripts/view-smoke-test.sh --stop
 ```
 
-## Nangate45 physical files
+## Timing and physical libraries
+
+Two standard-cell platforms are installed. ASAP7 is the default for the smoke
+flow; Nangate45 remains available as a comparison baseline. Both are pinned
+from OpenROAD-flow-scripts commit
+`31ae82dc3149d5e66386317d564f47c672ddb1d8`.
+
+### ASAP7
+
+`config/tools/asap7-install.json` pins the tech LEF, RVT cell LEF, five
+TT/NLDM Liberty files (AO, INVBUF, OA, SIMPLE, SEQ), layer RC, extraction
+rules, tapcell/track scripts, and license. The library is ASAP7 7.5-track
+predictive 7 nm; it is not a production process and its PPA results are not
+comparable to Nangate45.
+
+Docker installs the files at `/opt/eda/asap7` and sets:
+
+| Variable | File |
+| --- | --- |
+| `ASAP7_TECH_LEF` | `lef/asap7_tech_1x_201209.lef` |
+| `ASAP7_CELLS_LEF` | `lef/asap7sc7p5t_28_R_1x_220121a.lef` |
+| `ASAP7_LIBERTIES` | Five TT/RVT Liberty files under `lib/NLDM/`, space-separated |
+| `ASAP7_DFF_LIBERTY` | `lib/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib` |
+| `ASAP7_RC` | `setRC.tcl` |
+| `ASAP7_RCX_RULES` | `rcx_patterns.rules` |
+| `ASAP7_TRACKS` | `openRoad/make_tracks.tcl` |
+| `ASAP7_TAPCELL` | `openRoad/tapcell.tcl` |
+| `ASAP7_SITE` | `asap7sc7p5t` |
+| `ASAP7_TIEHI_CELL` / `ASAP7_TIEHI_PORT` | `TIEHIx1_ASAP7_75t_R` / `H` |
+| `ASAP7_TIELO_CELL` / `ASAP7_TIELO_PORT` | `TIELOx1_ASAP7_75t_R` / `L` |
+| `ASAP7_CLOCK_BUFFER` | `BUFx2_ASAP7_75t_R` |
+| `ASAP7_CLOCK_BUFFERS` | `BUFx2_ASAP7_75t_R BUFx4_ASAP7_75t_R BUFx8_ASAP7_75t_R` |
+
+ASAP7 Liberty uses 1 ps and 1 fF units. Constraints must be written in those
+units (`create_clock -period 5000` for 5 ns), unlike the Nangate45 ns/pF
+libraries. `tests/smoke/simple_add_asap7.sdc` shows the conversion.
+
+The placement site is `asap7sc7p5t`. The smoke flow routes signals on M2–M7
+and clocks from M4, inserts tap/endcap cells, and uses `make_tracks.tcl`
+instead of the built-in Nangate45 track generation.
+
+### Nangate45
 
 `config/tools/nangate45-physical-install.json` pins the technology LEF,
-standard-cell LEF, layer RC Tcl, extraction rules, and license from
-OpenROAD-flow-scripts commit `31ae82dc3149d5e66386317d564f47c672ddb1d8`.
-The Liberty file at that revision has the same SHA-256 as this repository's
-existing typical-corner library. The installer and Docker build verify that
-the two installations agree.
+standard-cell LEF, layer RC Tcl, extraction rules, and license from the same
+commit. The Liberty file at that revision has the same SHA-256 as this
+repository's existing typical-corner library. The installer and Docker build
+verify that the two installations agree.
 
 The build downloads and verifies the physical files inside Docker and
 installs them at `/opt/eda/nangate45-physical`. Docker sets these variables:
@@ -97,35 +138,40 @@ installs them at `/opt/eda/nangate45-physical`. Docker sets these variables:
 | `NANGATE45_RC` | `setRC.tcl` |
 | `NANGATE45_RCX_RULES` | `rcx_patterns.rules` |
 
-A Docker Tcl script can load them with:
+A Docker Tcl script can load either platform. For example:
 
 ```tcl
-read_lef $::env(NANGATE45_TECH_LEF)
-read_lef $::env(NANGATE45_CELLS_LEF)
-read_liberty $::env(NANGATE45_LIBERTY)
+read_lef $::env(ASAP7_TECH_LEF)
+read_lef $::env(ASAP7_CELLS_LEF)
+foreach lib $::env(ASAP7_LIBERTIES) { read_liberty $lib }
 read_verilog mapped.v
 link_design top
-source $::env(NANGATE45_RC)
+source $::env(ASAP7_RC)
 ```
 
-The placement site is `FreePDK45_38x28_10R_NP_162NW_34O`. See
+The Nangate45 placement site is `FreePDK45_38x28_10R_NP_162NW_34O`. See
 `tests/smoke/openroad.tcl` for the shared floorplan, pin/cell placement, and
-DEF/OpenDB export. `tests/smoke/route-adder.tcl` extends it with clock-tree
-synthesis, global routing, and detailed signal/clock routing on metal2–metal6.
-The 5 ns adder constraints are in `tests/smoke/simple_add.sdc`.
+DEF/OpenDB export. Its optional `site`, `pin_h`, `pin_v`, `make_tracks_script`,
+`tapcell_script`, and `tapcell_master` variables select platform differences.
+`tests/smoke/platforms/{asap7,nangate45}.tcl` hold the settings, and
+`tests/smoke/route-adder.tcl` extends the flow with clock-tree synthesis,
+global routing, and detailed signal/clock routing.
 
 Run `./scripts/run-smoke-test.sh` to exercise the XLS-generated adder through
-this flow. It requires zero detailed-routing DRCs, verifies route coverage,
-and uses `tests/smoke/check-routed-adder.tcl` in a fresh OpenROAD process to
-check the saved database's 96 pipeline flops, clock buffers, and routes.
-Outputs and `routing-summary.json` are retained under `build/simple_add/`.
-Timing/power reports use global-route RC estimates. Power-grid construction,
-signoff, and GDS generation remain design-flow work.
+the default ASAP7 flow, or add `--platform nangate45` for the baseline. The
+test requires zero detailed-routing DRCs, verifies route coverage, and uses
+`tests/smoke/check-routed-adder.tcl` in a fresh OpenROAD process to check the
+saved database's 96 pipeline flops, clock buffers, and routes. Outputs and
+`routing-summary.json` are retained under `build/simple_add/` (ASAP7) or
+`build/simple_add-nangate45/` (Nangate45). Timing/power reports use
+global-route RC estimates. Power-grid construction, signoff, and GDS
+generation remain design-flow work.
 
 ## Verification and updates
 
 The tool tests use `docker/bin/openroad` and the image's bundled Nangate45
-libraries. Select the image/context with `EDA_IMAGE` and `EDA_DOCKER_CONTEXT`.
+libraries. The smoke flow defaults to ASAP7. Select the image/context with
+`EDA_IMAGE` and `EDA_DOCKER_CONTEXT`.
 
 ```bash
 # OpenSTA activity and OpenROAD placement through Docker

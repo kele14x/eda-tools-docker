@@ -4,5 +4,12 @@
   "bazelisk_sha256": {
     "arm64": "8ded44b58a0d9425a4178af26cf17693feac3b87bdcfef0a2a0898fcd1afc9f2",
     "amd64": "22e7d3a188699982f661cf4687137ee52d1f24fec1ec893d91a6c4d791a75de8"
-  }
+  },
+  "bazel_distdir": [
+    {
+      "filename": "xcbproto-xcb-proto-1.17.0.tar.gz",
+      "url": "https://github.com/gitlab-freedesktop-mirrors/xcbproto/archive/refs/tags/xcb-proto-1.17.0.tar.gz",
+      "sha256": "479447448281cfb6585ad780f23bd75311af20daf344fb9209c8a87ea77e296a"
+    }
+  ]
 }

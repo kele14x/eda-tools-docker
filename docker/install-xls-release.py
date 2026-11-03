@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -14,7 +15,9 @@ ROOT = Path('/opt/eda')
 MANIFEST = ROOT / 'manifests/xls-install.json'
 
 
-def main():
+def main(action='install'):
+    if action not in ('fetch', 'install'):
+        raise SystemExit('Expected fetch or install')
     if platform.machine() != 'x86_64':
         raise SystemExit('XLS_INSTALL_MODE=release requires Linux AMD64; use source on ARM64')
     info = json.loads(MANIFEST.read_text())
@@ -23,15 +26,19 @@ def main():
     archive_path = Path.home() / '.cache/xls-releases' / info['archive']
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     if not archive_path.is_file() or file_sha256(archive_path) != info['sha256']:
+        if action == 'install':
+            raise SystemExit(f'Missing or corrupt prefetched XLS release: {archive_path}; rerun fetch')
         subprocess.run([
             'curl', '--fail', '--location', '--connect-timeout', '20',
-            '--retry', '5', '--retry-all-errors', '--output', str(archive_path),
-            info['download_url'],
+            '--retry', '5', '--retry-all-errors', '--speed-limit', '1024', '--speed-time', '60',
+            '--output', str(archive_path), info['download_url'],
         ], check=True)
     actual = file_sha256(archive_path)
     if actual != info['sha256']:
         raise SystemExit(f'XLS release checksum mismatch: {actual} != {info["sha256"]}')
     print(f'Verified XLS release archive SHA-256: {actual}', flush=True)
+    if action == 'fetch':
+        return
     with tarfile.open(archive_path) as archive:
         archive.extractall(ROOT, filter='data')
     installation = ROOT / 'xls'
@@ -45,4 +52,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else 'install')

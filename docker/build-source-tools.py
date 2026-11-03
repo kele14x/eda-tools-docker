@@ -1,21 +1,82 @@
 """Build pinned tools inside the target-architecture Linux container."""
 
+import hashlib
 import json
 import os
 import platform
+import shlex
+import signal
 import subprocess
 import sys
 import tarfile
+import time
+import zlib
 from pathlib import Path
 
 from runtime_checksums import file_sha256, tree_sha256
 
 ROOT = Path('/opt/eda')
 MANIFESTS = ROOT / 'manifests'
+# Abort a transfer that stays below 1 KiB/s for a minute so retries can resume it.
+STALL_ARGS = ('--speed-limit', '1024', '--speed-time', '60')
+DOWNLOAD_CACHE = Path('/var/cache/eda/downloads')
+DISTDIR = Path('/home/builder/.cache/distdir')
 
 
 def run(*args, cwd=None):
     subprocess.run(list(map(str, args)), cwd=cwd, check=True)
+
+
+def fetch_with_progress(*args, cwd):
+    limit = int(os.environ.get('BAZEL_FETCH_TIMEOUT', '1800'))
+    if limit <= 0:
+        raise SystemExit('BAZEL_FETCH_TIMEOUT must be positive (seconds)')
+    command = list(map(str, args))
+    print(f'FETCH COMMAND [{cwd.name}, limit {limit}s]: {shlex.join(command)}', flush=True)
+    started = time.monotonic()
+    with subprocess.Popen(command, cwd=cwd, start_new_session=True) as process:
+        while True:
+            remaining = limit - (time.monotonic() - started)
+            try:
+                code = process.wait(timeout=max(0, min(30, remaining)))
+                break
+            except subprocess.TimeoutExpired:
+                elapsed = int(time.monotonic() - started)
+                print(f'FETCH WAIT [{cwd.name}]: {elapsed}s elapsed, limit {limit}s; '
+                      'process still running (not proof of download progress)', flush=True)
+                if elapsed < limit:
+                    continue
+                print(f'FETCH TIMEOUT [{cwd.name}]: stopping dependency resolution', flush=True)
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                # Descendant repository commands can outlive the Bazel launcher.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+                raise SystemExit(f'Bazel fetch exceeded {limit}s for {cwd.name}; '
+                                 'this is a fetch timeout, not a compilation failure')
+    if code:
+        raise subprocess.CalledProcessError(code, command)
+    print(f'FETCH COMPLETE [{cwd.name}]: {int(time.monotonic() - started)}s', flush=True)
+
+
+def retry(*args, attempts=6, cwd=None):
+    """Run a command, retrying transient network failures that abort the transfer."""
+    for attempt in range(1, attempts + 1):
+        try:
+            run(*args, cwd=cwd)
+            return
+        except subprocess.CalledProcessError as exc:
+            if attempt == attempts:
+                raise exc
 
 
 def manifest(tool):
@@ -28,10 +89,58 @@ def download(url, destination, sha256):
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     run('curl', '--fail', '--location', '--connect-timeout', '20',
-        '--retry', '5', '--retry-all-errors', '--output', destination, url)
+        '--retry', '5', '--retry-all-errors', *STALL_ARGS, '--output', destination, url)
     actual = file_sha256(destination)
     if actual != sha256:
         raise SystemExit(f'Checksum mismatch for {url}: {actual} != {sha256}')
+
+
+def is_complete_tarball(path):
+    try:
+        with tarfile.open(path, 'r:*') as archive:
+            for _ in archive:
+                pass
+            # Read past the tar end marker to validate the compressed stream's trailer.
+            while archive.fileobj.read(1024 * 1024):
+                pass
+        return True
+    except (OSError, EOFError, tarfile.TarError, zlib.error):
+        return False
+
+
+def download_resumable(url, destination):
+    """Download an archive without a pinned checksum, resuming across stalls and rebuilds.
+
+    A stalled chunked response never terminates, so abort on low throughput and let the next
+    attempt resume from the cached partial file instead of hanging forever.
+    """
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if is_complete_tarball(destination):
+        return
+    for attempt in range(1, 11):
+        try:
+            run('curl', '--fail', '--location', '--connect-timeout', '20',
+                '--retry', '5', '--retry-all-errors', '-C', '-', *STALL_ARGS,
+                '--output', destination, url)
+        except subprocess.CalledProcessError:
+            # A resumed request for an already-complete body can report a 416.
+            if is_complete_tarball(destination):
+                return
+            if attempt == 10:
+                raise
+            continue
+        if is_complete_tarball(destination):
+            return
+    raise SystemExit(f'Incomplete download for {url}')
+
+
+def git_network_config():
+    # GitHub transfers stall and drop on this link; fail fast so retries can resume.
+    # Global (not local) so submodule clones, which are separate repositories, inherit it.
+    for key, value in (('http.version', 'HTTP/1.1'), ('http.postBuffer', '524288000'),
+                       ('http.lowSpeedLimit', '1024'), ('http.lowSpeedTime', '60')):
+        run('git', 'config', '--global', key, value)
 
 
 def checkout(tool, info, commit):
@@ -39,12 +148,46 @@ def checkout(tool, info, commit):
     source.mkdir(parents=True, exist_ok=True)
     run('git', 'init', source)
     run('git', 'remote', 'add', 'origin', info['repository'], cwd=source)
-    run('git', 'fetch', '--depth=1', 'origin', commit, cwd=source)
+    git_network_config()
+    retry('git', 'fetch', '--depth=1', '--no-tags', 'origin', commit, cwd=source)
     run('git', 'checkout', '--detach', 'FETCH_HEAD', cwd=source)
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
     if actual != commit:
         raise SystemExit(f'Unexpected {tool} source commit: {actual}')
-    run('git', 'submodule', 'update', '--init', '--recursive', '--depth=1', cwd=source)
+    retry('git', 'submodule', 'update', '--init', '--recursive', '--depth=1', '--jobs=4',
+          cwd=source)
+    return source
+
+
+def openroad_source(info, commit):
+    """Bootstrap an OpenROAD source tree from GitHub's archive, then point HEAD at the pinned commit.
+
+    A shallow clone of OpenROAD produces a ~1.4 GB pack that this link drops after ~20 minutes. The
+    archive is a resumable single file, and the blobless fetch below pulls only the commit and its
+    trees -- a few MB, and enough for `submodule update` to read the gitlinks out of the index. The
+    blobs are never fetched: the archive already supplied them.
+    """
+    source = Path('/src/openroad')
+    archive = DOWNLOAD_CACHE / f'openroad-{commit}.tar.gz'
+    download_resumable(f'{info["repository"]}/archive/{commit}.tar.gz', archive)
+    source.mkdir(parents=True, exist_ok=True)
+    run('tar', '-xzf', archive, '-C', source, '--strip-components=1',
+        '--no-same-owner', '--no-same-permissions')
+    run('git', 'init', source)
+    run('git', 'remote', 'add', 'origin', info['repository'], cwd=source)
+    git_network_config()
+    # tree:0 would leave the trees on the promisor remote, and the reset below would then have to
+    # re-fetch the whole tree graph in one non-resumable request that this link cannot sustain.
+    retry('git', 'fetch', '--depth=1', '--no-tags', '--filter=blob:none', 'origin', commit,
+          cwd=source)
+    # Mixed (not soft) so the index records the commit tree, including the submodule gitlinks
+    # that `submodule update` needs; the archive already populated the working tree.
+    run('git', 'reset', '--mixed', 'FETCH_HEAD', cwd=source)
+    actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
+    if actual != commit:
+        raise SystemExit(f'Unexpected openroad source commit: {actual}')
+    retry('git', 'submodule', 'update', '--init', '--recursive', '--depth=1', '--jobs=4',
+          cwd=source)
     return source
 
 
@@ -69,13 +212,55 @@ def record(tool, info, build):
     (MANIFESTS / f'{tool}-install.json').write_text(json.dumps(info, indent=2) + '\n')
 
 
-def bazel(source, jobs, *args):
-    # A persistent output root also preserves in-progress work after a failed RUN.
-    run('bazelisk', '--batch', '--output_user_root=/home/builder/.cache/bazel',
-        '--host_jvm_args=-Xmx2048m', 'build', '-c', 'opt', f'--jobs={jobs}',
-        '--local_resources=memory=6144', '--local_resources=cpu=' + str(jobs),
-        '--repository_cache=/home/builder/.cache/bazel-repository-cache',
-        '--disk_cache=/home/builder/.cache/bazel-disk-cache', *args, cwd=source)
+def distdir_args(fetch):
+    entries = json.loads((MANIFESTS / 'source-build.json').read_text()).get('bazel_distdir', [])
+    for entry in entries:
+        destination = DISTDIR / entry['filename']
+        if fetch:
+            download(entry['url'], destination, entry['sha256'])
+        elif not destination.is_file() or file_sha256(destination) != entry['sha256']:
+            raise SystemExit(f'Missing or corrupt prefetched dependency: {destination}; rerun fetch')
+    return [f'--distdir={DISTDIR}'] if entries else []
+
+
+def bazel(source, jobs, *args, fetch=False):
+    registries = os.environ.get('BAZEL_REGISTRY', '').replace(',', ' ').split()
+    registry_args = [f'--registry={registry}' for registry in registries]
+    command = ['fetch', '--nobuild_tests_only', '--announce_rc', '--verbose_failures',
+               '--show_progress_rate_limit=10', '--color=no', '--curses=no'] if fetch else [
+        'build', '--nofetch', f'--jobs={jobs}',
+        f'--local_resources=memory={1536 * jobs}', f'--local_resources=cpu={jobs}',
+        '--disk_cache=/home/builder/.cache/bazel-disk-cache',
+    ]
+    repository_cache = Path('/home/builder/.cache/bazel-repository-cache')
+    persistent_cache = Path('/var/cache/eda/bazel-repository-cache')
+    if fetch and persistent_cache.is_dir():
+        print(f'FETCH CACHE [{source.name}]: restoring downloaded repositories', flush=True)
+        run('mkdir', '-p', repository_cache)
+        run('cp', '-a', '--update=none', str(persistent_cache) + '/.', repository_cache)
+    try:
+        runner = fetch_with_progress if fetch else run
+        runner('bazelisk', '--batch', '--output_user_root=/home/builder/.cache/bazel',
+               '--host_jvm_args=-Xmx2048m', *command, '-c', 'opt', '--remote_cache=',
+               f'--repository_cache={repository_cache}',
+               *registry_args, *distdir_args(fetch), *args, cwd=source)
+    except (SystemExit, subprocess.CalledProcessError):
+        if fetch:
+            workspace_hash = hashlib.md5(str(source).encode(), usedforsecurity=False).hexdigest()
+            java_log = Path('/home/builder/.cache/bazel') / workspace_hash / 'java.log'
+            if java_log.is_file():
+                print(f'FETCH DIAGNOSTICS [{source.name}]: last 16 KiB of {java_log}', flush=True)
+                with java_log.open('rb') as log:
+                    log.seek(max(0, java_log.stat().st_size - 16384))
+                    print(log.read().decode(errors='replace'), flush=True)
+        raise
+    finally:
+        # Retain partial downloads for retries without making the image depend on the cache mount.
+        if fetch and repository_cache.is_dir():
+            print(f'FETCH CACHE [{source.name}]: saving downloads for retry', flush=True)
+            run('mkdir', '-p', persistent_cache)
+            run('cp', '-a', '--update=none', str(repository_cache) + '/.', persistent_cache)
+            print(f'FETCH CACHE [{source.name}]: saved', flush=True)
 
 
 def main():
@@ -98,24 +283,42 @@ def main():
         liberty = manifest('nangate45')
         download(base + '/lib/' + liberty['filename'], ROOT / 'nangate45' / liberty['filename'],
                  liberty['sha256'])
+
+        asap7 = manifest('asap7')
+        asap7_base = ('https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/'
+                      + asap7['commit'] + '/' + asap7['source_path'])
+        for filename, checksum in asap7['files'].items():
+            download(asap7_base + '/' + filename, ROOT / 'asap7' / filename, checksum)
+        asap7_license = asap7['license']
+        download(asap7_license['url'], ROOT / 'asap7' / asap7_license['filename'],
+                 asap7_license['sha256'])
         return
 
-    jobs = int(sys.argv[2])
+    if tool not in ('fetch', 'build'):
+        raise SystemExit('Expected bootstrap, libraries, fetch TOOL, or build TOOL')
+    fetch = tool == 'fetch'
+    tool = sys.argv[2]
+    jobs = int(sys.argv[3])
     if jobs < 1:
         raise SystemExit('BUILD_JOBS must be positive')
     info = manifest(tool)
+    source = Path('/src') / tool
+    if not fetch and not (source / '.git').is_dir():
+        raise SystemExit(f'Missing prefetched source: {source}; rerun fetch')
+    print(f'{"FETCH" if fetch else "OFFLINE BUILD"}: {tool}', flush=True)
     if tool == 'openroad':
-        source = checkout(tool, info, info['commit'])
         patch = Path('/opt/build/openroad-parser-eof.patch')
-        run('git', 'apply', '--check', patch, cwd=source)
-        run('git', 'apply', patch, cwd=source)
+        if fetch:
+            source = openroad_source(info, info['commit'])
+            run('git', 'apply', '--check', patch, cwd=source)
+            run('git', 'apply', patch, cwd=source)
+            run('git', 'tag', info['version'], cwd=source)
         info['patches'] = [{'file': patch.name, 'sha256': file_sha256(patch)}]
-        run('git', 'tag', info['version'], cwd=source)
         sta_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
                                             cwd=source / 'src/sta', text=True).strip()
         if sta_commit != info['embedded_opensta']['source_submodule_commit']:
             raise SystemExit(f'Unexpected embedded OpenSTA revision: {sta_commit}')
-        gui = sys.argv[3] == 'ON'
+        gui = sys.argv[4] == 'ON'
         build_platform = 'gui' if gui else 'cli'
         options = ['--config=release', f'--//:platform={build_platform}']
         if gui:
@@ -128,7 +331,9 @@ def main():
                 options += ['--platforms=' + native_platform,
                             '--host_platform=' + native_platform,
                             '--extra_execution_platforms=' + native_platform]
-        bazel(source, jobs, *options, '//:tarfile')
+        bazel(source, jobs, *options, '//:tarfile', fetch=fetch)
+        if fetch:
+            return
         install = ROOT / tool
         (install / 'bin').mkdir(parents=True)
         with tarfile.open(source / 'bazel-bin/packaging/openroad.tar') as archive:
@@ -138,27 +343,34 @@ def main():
                             'jobs': jobs, 'bazel_options': options,
                             'bazel_version': (source / '.bazelversion').read_text().strip()})
     elif tool == 'yosys':
-        archive_path = Path('/tmp/yosys.tar.gz')
-        source_checksum = info['sha256']
-        download(info['download_url'], archive_path, source_checksum)
-        source = Path('/src/yosys')
-        source.mkdir()
-        with tarfile.open(archive_path) as archive:
-            archive.extractall(source, filter='data')
+        if fetch:
+            source = checkout(tool, info, info['commit'])
+        pinned = info['build_dependencies']['submodules']
+        for path, expected in pinned.items():
+            actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                             cwd=source / path, text=True).strip()
+            if actual != expected:
+                raise SystemExit(f'Unexpected yosys submodule revision for {path}: {actual}')
+        if fetch:
+            run('git', 'tag', 'v' + info['version'], cwd=source)
+            return
         options = info['cmake_options'] | {'CMAKE_INSTALL_PREFIX': str(ROOT / tool)}
         flags = [f'-D{key}={"ON" if value is True else "OFF" if value is False else value}'
                  for key, value in options.items()]
         run('cmake', '-S', source, '-B', source / 'build', '-G', 'Ninja', *flags)
         run('cmake', '--build', source / 'build', '--parallel', jobs)
         run('cmake', '--install', source / 'build', '--strip')
-        record(tool, info, {'system': 'cmake', 'jobs': jobs, 'source_archive_sha256': source_checksum,
-                            'cmake_options': options})
+        record(tool, info, {'system': 'cmake', 'jobs': jobs,
+                            'source_submodule_commits': pinned, 'cmake_options': options})
     elif tool == 'xls':
         info['commit'] = source_config['xls_commit']
-        source = checkout(tool, info, info['commit'])
+        if fetch:
+            source = checkout(tool, info, info['commit'])
         arch = 'arm64' if platform.machine() == 'aarch64' else 'x64'
         bazel(source, jobs, '//dist:xls_dist_tar', '--//dist:os=linux', f'--//dist:arch={arch}',
-              '--//dist:version=' + info['release'])
+              '--//dist:version=' + info['release'], fetch=fetch)
+        if fetch:
+            return
         archive_path = source / 'bazel-bin/dist' / f'xls-{info["release"]}-linux-{arch}.tar.gz'
         run('tar', '-xzf', archive_path, '-C', ROOT)
         (ROOT / f'xls-{info["release"]}-linux-{arch}').rename(ROOT / tool)

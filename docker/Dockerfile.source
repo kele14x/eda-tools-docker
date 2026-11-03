@@ -1,5 +1,6 @@
-# syntax=docker/dockerfile:1
-# Build on the native Linux CPU: ARM64 on Apple Silicon or AMD64 on x64 Windows.
+# Use the bundled Dockerfile frontend so offline builds do not pull a syntax image.
+ARG DEPENDENCIES_IMAGE=dependencies
+ARG XLS_FETCH_BASE_IMAGE=yosys-fetch
 FROM ubuntu:24.04 AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
@@ -19,48 +20,57 @@ RUN DEBIAN_FRONTEND=noninteractive python3 /opt/build/install-build-deps.py \
     && rm -rf /var/lib/apt/lists/*
 COPY config/tools/ /opt/eda/manifests/
 COPY docker/build-source-tools.py docker/runtime_checksums.py /opt/build/
+# Egress proxies block one of Bazel's two registry endpoints at a time, and which one varies
+# between builds, so search both: the canonical registry first, then its verbatim GitHub mirror.
+# Pass an empty value to use only Bazel's default registry.
+ARG BAZEL_REGISTRY=https://bcr.bazel.build,https://raw.githubusercontent.com/bazelbuild/bazel-central-registry/main
+ENV BAZEL_REGISTRY=$BAZEL_REGISTRY
+# releases.bazel.build is unreachable behind some egress proxies, so bazelisk cannot fetch the
+# Bazel that OpenROAD and XLS pin. The GCS bucket backing that domain is usually allowed and
+# serves byte-identical artifacts under the same path. BAZELISK_BASE_URL cannot express this
+# because it appends /<version>/<file> and omits the /release/ segment. Pass an empty value to
+# restore bazelisk's default release server.
+ARG BAZEL_URL_FORMAT=https://storage.googleapis.com/bazel/%v/release/bazel-%v-%o-%m%e
+ENV BAZELISK_FORMAT_URL=$BAZEL_URL_FORMAT
 ARG TARGETARCH
 RUN --mount=type=cache,id=eda-bootstrap-cache,target=/var/cache/eda,sharing=locked \
     python3 /opt/build/build-source-tools.py bootstrap "$TARGETARCH" \
     && useradd --create-home --uid 1001 builder \
-    && mkdir -p /src /opt/eda \
+    && mkdir -p /src /opt/eda /var/cache/eda \
     && chown -R builder:builder /src /opt/eda
+RUN --network=none mkdir -p /var/cache/eda && chown builder:builder /var/cache/eda
 USER builder
 WORKDIR /src
-ENV HOME=/home/builder
+ENV HOME=/home/builder ASPECT_TOOLS_TELEMETRY=-all
 
-# Serial stages keep OpenROAD, Yosys and LLVM from competing for RAM.
-# Cache mounts retain downloaded dependencies and compiled objects after failures.
-FROM builder-base AS openroad-build
+FROM builder-base AS openroad-fetch
 COPY docker/openroad-parser-eof.patch /opt/build/openroad-parser-eof.patch
-ARG BUILD_JOBS=4
 ARG OPENROAD_GUI=ON
-RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,gid=1001,sharing=locked \
-    python3 /opt/build/build-source-tools.py openroad "$BUILD_JOBS" "$OPENROAD_GUI"
+ARG BAZEL_FETCH_TIMEOUT=1800
+ENV OPENROAD_GUI=$OPENROAD_GUI BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
+RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
+    python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"
 
-FROM openroad-build AS yosys-build
-ARG BUILD_JOBS=4
-RUN python3 /opt/build/build-source-tools.py yosys "$BUILD_JOBS"
+FROM openroad-fetch AS yosys-fetch
+RUN python3 /opt/build/build-source-tools.py fetch yosys 1
 
-FROM yosys-build AS xls-build
-ARG BUILD_JOBS=4
+FROM ${XLS_FETCH_BASE_IMAGE} AS xls-fetch
 ARG TARGETARCH
 ARG XLS_INSTALL_MODE=auto
+ARG BAZEL_FETCH_TIMEOUT=1800
+ENV BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
+ENV XLS_INSTALL_MODE=$XLS_INSTALL_MODE
+COPY docker/build-source-tools.py docker/runtime_checksums.py /opt/build/
 COPY docker/install-xls-release.py /opt/build/install-xls-release.py
-RUN --mount=type=cache,id=eda-source-cache,target=/home/builder/.cache,uid=1001,gid=1001,sharing=locked \
+RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
     case "$XLS_INSTALL_MODE:$TARGETARCH" in \
-      auto:amd64|release:*) python3 /opt/build/install-xls-release.py ;; \
-      auto:arm64|source:*) python3 /opt/build/build-source-tools.py xls "$BUILD_JOBS" ;; \
-      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release)" >&2; exit 2 ;; \
+      auto:amd64|release:amd64) python3 /opt/build/install-xls-release.py fetch ;; \
+      auto:arm64|source:amd64|source:arm64) python3 /opt/build/build-source-tools.py fetch xls 1 ;; \
+      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release; release requires AMD64)" >&2; exit 2 ;; \
     esac
 RUN python3 /opt/build/build-source-tools.py libraries
 
-FROM runtime-base AS runtime
-LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator native toolchain" \
-      org.opencontainers.image.description="Native synthesis, simulation, timing, and physical design with Nangate45" \
-      org.opencontainers.image.version="v1-source"
-# Keep simulator packages out of runtime-base to preserve the expensive source
-# build cache. C++ build tools are needed at runtime for Verilator simulations.
+FROM runtime-base AS runtime-packages
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         iverilog verilator build-essential zlib1g-dev \
@@ -68,16 +78,64 @@ RUN apt-get update \
     && dpkg-query -W iverilog verilator build-essential g++ make perl zlib1g-dev \
         > /opt/eda/manifests/simulation-packages.txt \
     && rm -rf /var/lib/apt/lists/*
+
+FROM xls-fetch AS dependencies
+COPY --from=runtime-packages / /opt/runtime-root/
+
+# Override with a local prepared image to skip every online stage.
+FROM ${DEPENDENCIES_IMAGE} AS prepared
+ENV GIT_NO_LAZY_FETCH=1
+
+FROM prepared AS openroad-build
+ARG BUILD_JOBS=4
+RUN --network=none --mount=type=cache,id=eda-bazel-actions,target=/home/builder/.cache/bazel-disk-cache,uid=1001,gid=1001,sharing=locked \
+    python3 /opt/build/build-source-tools.py build openroad "$BUILD_JOBS" "$OPENROAD_GUI"
+
+FROM openroad-build AS yosys-build
+ARG BUILD_JOBS=4
+RUN --network=none python3 /opt/build/build-source-tools.py build yosys "$BUILD_JOBS"
+
+FROM yosys-build AS xls-build
+ARG BUILD_JOBS=4
+ARG TARGETARCH
+RUN --network=none --mount=type=cache,id=eda-bazel-actions,target=/home/builder/.cache/bazel-disk-cache,uid=1001,gid=1001,sharing=locked \
+    case "$XLS_INSTALL_MODE:$TARGETARCH" in \
+      auto:amd64|release:amd64) python3 /opt/build/install-xls-release.py install ;; \
+      auto:arm64|source:amd64|source:arm64) python3 /opt/build/build-source-tools.py build xls "$BUILD_JOBS" ;; \
+      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release; release requires AMD64)" >&2; exit 2 ;; \
+    esac
+
+FROM scratch AS runtime
+LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator native toolchain" \
+      org.opencontainers.image.description="Native synthesis, simulation, timing, and physical design with ASAP7 and Nangate45" \
+      org.opencontainers.image.version="v1-source"
+COPY --from=prepared /opt/runtime-root/ /
 COPY --from=xls-build /opt/eda/ /opt/eda/
 COPY docker/verify-installations.py docker/runtime_checksums.py /opt/eda/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/eda-entrypoint
-ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:${PATH}" \
+ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     NANGATE45_LIBERTY="/opt/eda/nangate45/NangateOpenCellLibrary_typical.lib" \
     NANGATE45_TECH_LEF="/opt/eda/nangate45-physical/lef/NangateOpenCellLibrary.tech.lef" \
     NANGATE45_CELLS_LEF="/opt/eda/nangate45-physical/lef/NangateOpenCellLibrary.macro.mod.lef" \
     NANGATE45_RC="/opt/eda/nangate45-physical/setRC.tcl" \
-    NANGATE45_RCX_RULES="/opt/eda/nangate45-physical/rcx_patterns.rules"
-RUN ln -s eda-entrypoint /usr/local/bin/xls \
+    NANGATE45_RCX_RULES="/opt/eda/nangate45-physical/rcx_patterns.rules" \
+    ASAP7_TECH_LEF="/opt/eda/asap7/lef/asap7_tech_1x_201209.lef" \
+    ASAP7_CELLS_LEF="/opt/eda/asap7/lef/asap7sc7p5t_28_R_1x_220121a.lef" \
+    ASAP7_LIBERTIES="/opt/eda/asap7/lib/NLDM/asap7sc7p5t_AO_RVT_TT_nldm_211120.lib.gz /opt/eda/asap7/lib/NLDM/asap7sc7p5t_INVBUF_RVT_TT_nldm_220122.lib.gz /opt/eda/asap7/lib/NLDM/asap7sc7p5t_OA_RVT_TT_nldm_211120.lib.gz /opt/eda/asap7/lib/NLDM/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib.gz /opt/eda/asap7/lib/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib" \
+    ASAP7_DFF_LIBERTY="/opt/eda/asap7/lib/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib" \
+    ASAP7_RC="/opt/eda/asap7/setRC.tcl" \
+    ASAP7_RCX_RULES="/opt/eda/asap7/rcx_patterns.rules" \
+    ASAP7_TRACKS="/opt/eda/asap7/openRoad/make_tracks.tcl" \
+    ASAP7_TAPCELL="/opt/eda/asap7/openRoad/tapcell.tcl" \
+    ASAP7_SITE="asap7sc7p5t" \
+    ASAP7_TIEHI_CELL="TIEHIx1_ASAP7_75t_R" \
+    ASAP7_TIEHI_PORT="H" \
+    ASAP7_TIELO_CELL="TIELOx1_ASAP7_75t_R" \
+    ASAP7_TIELO_PORT="L" \
+    ASAP7_CLOCK_BUFFER="BUFx2_ASAP7_75t_R" \
+    ASAP7_CLOCK_BUFFERS="BUFx2_ASAP7_75t_R BUFx4_ASAP7_75t_R BUFx8_ASAP7_75t_R" \
+    EDA_SMOKE_PLATFORM="asap7"
+RUN --network=none ln -s eda-entrypoint /usr/local/bin/xls \
     && ln -s /opt/eda/openroad/bin/openroad /usr/local/bin/sta \
     && python3 /opt/eda/verify-installations.py \
     && xls interpreter_main --version && yosys -V && sta -version && openroad -version \

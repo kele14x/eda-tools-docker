@@ -7,12 +7,33 @@ container=eda-tools-docker-openroad-viewer
 label_key=local.eda-tools-docker.viewer
 port="${OPENROAD_VIEWER_PORT:-8080}"
 
-if [[ $# -gt 1 || ( $# -eq 1 && "$1" != --stop ) ]]; then
-    echo "Usage: $0 [--stop]" >&2
-    echo 'Default: view the routed smoke-test adder at http://localhost:8080.' >&2
-    echo 'Environment: EDA_IMAGE, EDA_PLATFORM, EDA_DOCKER_CONTEXT, OPENROAD_VIEWER_PORT.' >&2
-    if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then exit 0; else exit 2; fi
-fi
+usage() {
+    cat >&2 <<'USAGE'
+Usage: $0 [--stop] [--platform asap7|nangate45]
+Default: view the routed smoke-test adder at http://localhost:8080.
+Environment: EDA_SMOKE_PLATFORM, EDA_IMAGE, EDA_PLATFORM, EDA_DOCKER_CONTEXT, OPENROAD_VIEWER_PORT.
+USAGE
+}
+
+stop=false
+platform_name="${EDA_SMOKE_PLATFORM:-asap7}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --stop) stop=true; shift ;;
+        --platform)
+            if [[ $# -lt 2 ]]; then usage; exit 2; fi
+            platform_name="$2"
+            shift 2
+            ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 2 ;;
+    esac
+done
+case "$platform_name" in
+    asap7) artifact_dir=build/simple_add ;;
+    nangate45) artifact_dir=build/simple_add-nangate45 ;;
+    *) echo "Unsupported platform: $platform_name" >&2; usage; exit 2 ;;
+esac
 if [[ ! "$port" =~ ^[0-9]+$ ]] || (( 10#$port < 1024 || 10#$port > 65535 )); then
     echo "OPENROAD_VIEWER_PORT must be between 1024 and 65535: $port" >&2
     exit 2
@@ -26,14 +47,14 @@ if "${docker_cmd[@]}" container inspect "$container" >/dev/null 2>&1; then
     fi
     "${docker_cmd[@]}" stop "$container" >/dev/null
 fi
-if [[ "${1:-}" == --stop ]]; then
+if $stop; then
     echo 'Stopped the OpenROAD smoke-test viewer.'
     exit 0
 fi
 
 for artifact in routed.def routed.sdc; do
-    if [[ ! -s "$project_dir/build/simple_add/$artifact" ]]; then
-        echo "Missing $artifact; run $project_dir/scripts/run-smoke-test.sh first." >&2
+    if [[ ! -s "$project_dir/$artifact_dir/$artifact" ]]; then
+        echo "Missing $artifact; run $project_dir/scripts/run-smoke-test.sh --platform $platform_name first." >&2
         exit 2
     fi
 done
@@ -50,6 +71,8 @@ fi
 "${docker_cmd[@]}" "${run_args[@]}" \
     --name "$container" --label "$label_key=$container" \
     --user "$(id -u):$(id -g)" \
+    --env "EDA_SMOKE_PLATFORM=$platform_name" \
+    --env "EDA_SMOKE_OUTPUT_DIR=$project_dir/$artifact_dir" \
     --mount "type=bind,source=$project_dir,target=$project_dir,readonly" \
     --workdir "$project_dir" \
     --publish "127.0.0.1:$port:8080" \

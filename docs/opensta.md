@@ -35,6 +35,20 @@ report_power
 puts "OpenSTA version: [sta::version]"
 ```
 
+ASAP7 uses the same commands with five Liberty files. Its Liberty files use
+picosecond and femtofarad units, so the 5 ns clock is written as `5000`:
+
+```tcl
+read_lef $::env(ASAP7_TECH_LEF)
+read_lef $::env(ASAP7_CELLS_LEF)
+foreach lib $::env(ASAP7_LIBERTIES) { read_liberty $lib }
+read_verilog mapped.v
+link_design top
+create_clock -name clk -period 5000 [get_ports clk]
+report_checks -path_delay max
+report_power
+```
+
 No floorplan or placement is required for this timing/power analysis. The
 Docker image sets the library variables used above.
 

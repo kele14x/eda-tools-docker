@@ -38,6 +38,11 @@ for filename, expected in physical['files'].items():
     verify('nangate45-physical/' + filename, expected)
 verify('nangate45/NangateOpenCellLibrary_typical.lib', physical['liberty_sha256'])
 
+asap7 = json.loads((ROOT / 'manifests/asap7-install.json').read_text())
+for filename, expected in asap7['files'].items():
+    verify('asap7/' + filename, expected)
+verify('asap7/' + asap7['license']['filename'], asap7['license']['sha256'])
+
 machine = platform.machine()
 expected_machine = {'x86_64': 62, 'aarch64': 183}[machine]
 xls_manifest = json.loads((ROOT / 'manifests/xls-install.json').read_text())

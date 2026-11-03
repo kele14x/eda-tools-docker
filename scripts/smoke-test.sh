@@ -3,11 +3,34 @@ set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
-output_dir="$project_dir/build/simple_add"
+
+usage() {
+    echo "Usage: $0 [--platform asap7|nangate45]" >&2
+    echo 'Default platform: ASAP7 TT RVT. Nangate45 remains available explicitly.' >&2
+}
+
+platform="${EDA_SMOKE_PLATFORM:-asap7}"
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        --platform)
+            if [[ $# -ne 2 ]]; then usage; exit 2; fi
+            platform="$2"
+            shift 2
+            ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 2 ;;
+    esac
+fi
+case "$platform" in
+    asap7) output_dir="$project_dir/build/simple_add" ;;
+    nangate45) output_dir="$project_dir/build/simple_add-nangate45" ;;
+    *) echo "Unsupported platform: $platform" >&2; usage; exit 2 ;;
+esac
+export EDA_SMOKE_PLATFORM="$platform"
 mkdir -p "$output_dir"
 exec > >(tee "$output_dir/smoke-test.log") 2>&1
 
-echo "Running XLS on $(hostname) ($(uname -m))"
+echo "Running XLS on $(hostname) ($(uname -m)) with the $platform platform"
 for tool in interpreter_main ir_converter_main opt_main codegen_main; do
     xls "$tool" --version
 done
@@ -62,11 +85,37 @@ echo "Simulating the XLS-generated adder with Icarus Verilog and Verilator"
     mv simulation.vcd "$output_dir/verilator.vcd"
 )
 
-echo "Mapping the XLS-generated adder to Nangate45 cells"
-cp "$project_dir/tests/smoke/simple_add.sdc" "$output_dir/simple_add.sdc"
+if [[ "$platform" == asap7 ]]; then
+    echo "Mapping the XLS-generated adder to ASAP7 cells"
+    cp "$project_dir/tests/smoke/simple_add_asap7.sdc" "$output_dir/simple_add.sdc"
+    read_liberty_lines=""
+    abc_args=""
+    stat_args=""
+    for lib in $ASAP7_LIBERTIES; do
+        read_liberty_lines+="read_liberty -lib $lib"$'\n'
+        abc_args+=" -liberty $lib"
+        stat_args+=" -liberty $lib"
+    done
+else
+    echo "Mapping the XLS-generated adder to Nangate45 cells"
+    cp "$project_dir/tests/smoke/simple_add.sdc" "$output_dir/simple_add.sdc"
+fi
 (
     cd "$output_dir"
-    cat > synth.ys <<YOSYS
+    if [[ "$platform" == asap7 ]]; then
+        cat > synth.ys <<YOSYS
+${read_liberty_lines}read_verilog simple_add.v
+synth -top simple_add
+dfflibmap -liberty "$ASAP7_DFF_LIBERTY"
+abc$abc_args
+hilomap -singleton -hicell "$ASAP7_TIEHI_CELL" "$ASAP7_TIEHI_PORT" -locell "$ASAP7_TIELO_CELL" "$ASAP7_TIELO_PORT"
+clean
+check -assert
+stat$stat_args
+write_verilog -noattr -noexpr simple_add.mapped.v
+YOSYS
+    else
+        cat > synth.ys <<YOSYS
 read_liberty -lib "$NANGATE45_LIBERTY"
 read_verilog simple_add.v
 synth -top simple_add
@@ -78,6 +127,7 @@ check -assert
 stat -liberty "$NANGATE45_LIBERTY"
 write_verilog -noattr -noexpr simple_add.mapped.v
 YOSYS
+    fi
     yosys -Q -T -l synthesis.log -s synth.ys
     echo "Placing and routing the adder and its clock tree with OpenROAD"
     openroad -no_init -no_splash -exit -threads 2 \
@@ -92,5 +142,5 @@ YOSYS
     grep -Fxq 'OPENROAD_ROUTED_RELOAD_PASS' routed-reload.log
 )
 
-echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, Nangate45 mapping, placement, and routing"
+echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, $platform mapping, placement, and routing"
 echo "Outputs: $output_dir"

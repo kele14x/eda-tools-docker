@@ -1,4 +1,6 @@
 # Validate the persisted route in a fresh OpenROAD process.
+set smoke_platform [expr {[info exists ::env(EDA_SMOKE_PLATFORM)] ? $::env(EDA_SMOKE_PLATFORM) : "asap7"}]
+source [file join [file dirname [info script]] platforms "$smoke_platform.tcl"]
 read_db routed.odb
 set block [ord::get_db_block]
 if {[$block getName] ne "simple_add"} { error "Wrong block after database reload" }
@@ -9,7 +11,7 @@ foreach inst [$block getInsts] {
     if {[$inst getPlacementStatus] ni {PLACED FIRM LOCKED}} {
         error "Unplaced instance after reload: [$inst getName]"
     }
-    if {[string match DFF_X* [[$inst getMaster] getName]]} { incr flop_count }
+    if {[string match $flop_pattern [[$inst getMaster] getName]]} { incr flop_count }
     if {[string match clkbuf_* [$inst getName]]} { incr clock_buffer_count }
 }
 if {$flop_count != 96} { error "Expected 96 XLS pipeline flops, found $flop_count" }
@@ -30,6 +32,7 @@ if {![file exists route-drc.rpt] || [file size route-drc.rpt] != 0} {
 set report [open routing-summary.json w]
 puts $report "\{"
 puts $report "  \"design\": \"simple_add\","
+puts $report "  \"platform\": \"$platform_label\","
 puts $report "  \"cells\": [llength [$block getInsts]],"
 puts $report "  \"pipeline_flops\": $flop_count,"
 puts $report "  \"clock_buffers\": $clock_buffer_count,"
