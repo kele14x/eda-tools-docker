@@ -137,24 +137,33 @@ def main():
             assert metadata['Os'] == 'linux', metadata['Os']
             report['image_id'] = metadata['Id']
             report['architecture'] = metadata['Architecture']
+            # OpenROAD (P&R and STA) is optional; images built with OPENROAD_ENABLED=OFF omit it.
+            probe = subprocess.run([str(bin_dir / 'eda'), 'bash', '-ec', 'command -v openroad'],
+                                   cwd=project, env=environment, capture_output=True, text=True)
+            openroad_available = probe.returncode == 0
+            report['openroad'] = openroad_available
             run('installation-checksums-and-architecture', [bin_dir / 'eda', 'python3',
                 '/opt/eda/verify-installations.py'])
             run('xls-version', [bin_dir / 'xls', 'interpreter_main', '--version'])
             run('yosys-version', [bin_dir / 'yosys', '-V'])
-            run('sta-version', [bin_dir / 'sta', '-version'])
-            run('openroad-version', [bin_dir / 'openroad', '-version'])
+            if openroad_available:
+                run('sta-version', [bin_dir / 'sta', '-version'])
+                run('openroad-version', [bin_dir / 'openroad', '-version'])
             run('iverilog-version', [bin_dir / 'iverilog', '-V'])
             run('vvp-version', [bin_dir / 'vvp', '-V'])
             run('verilator-version', [bin_dir / 'verilator', '--version'])
             run('simulation-package-versions', [bin_dir / 'eda', 'cat',
                 '/opt/eda/manifests/simulation-packages.txt'])
-            run('single-container-shell', [bin_dir / 'eda', 'bash', '-ec',
-                'xls interpreter_main --version\nyosys -V\nsta -version\nopenroad -version\n'
-                'iverilog -V\nvvp -V\nverilator --version'])
-            run('no-standalone-opensta', [bin_dir / 'eda', 'bash', '-ec',
-                'test ! -e /opt/eda/opensta\n'
-                'test ! -e /opt/eda/manifests/opensta-install.json\n'
-                'test "$(readlink -f /usr/local/bin/sta)" = /opt/eda/openroad/bin/openroad'])
+            shell_tools = 'xls interpreter_main --version\nyosys -V\n'
+            if openroad_available:
+                shell_tools += 'sta -version\nopenroad -version\n'
+            shell_tools += 'iverilog -V\nvvp -V\nverilator --version'
+            run('single-container-shell', [bin_dir / 'eda', 'bash', '-ec', shell_tools])
+            if openroad_available:
+                run('no-standalone-opensta', [bin_dir / 'eda', 'bash', '-ec',
+                    'test ! -e /opt/eda/opensta\n'
+                    'test ! -e /opt/eda/manifests/opensta-install.json\n'
+                    'test "$(readlink -f /usr/local/bin/sta)" = /opt/eda/openroad/bin/openroad'])
             linkage = run('shared-libraries', [bin_dir / 'eda', 'python3', '-c', '''
 from pathlib import Path
 import struct
@@ -243,37 +252,41 @@ for path in [*Path('/opt/eda/xls').iterdir(), *Path('/opt/eda/yosys/bin').iterdi
                 'abc -liberty /opt/eda/nangate45/NangateOpenCellLibrary_typical.lib; '
                 'clean; check -assert; write_verilog -noattr mapped.v'])
             assert 'DFF_X' in (project / 'mapped.v').read_text()
-            (project / 'timing.tcl').write_text(TIMING)
-            timing = run('sta-timing-power', [bin_dir / 'sta', '-no_init', '-no_splash', '-exit', 'timing.tcl'])
-            assert not re.search(r'(?m)^(?:Error:|\[ERROR)', timing), timing
-            assert 'STA_SMOKE_PASS' in timing and 'Startpoint:' in timing, timing
-            sta_version = json.loads((ROOT / 'config/tools/openroad-install.json').read_text())['embedded_opensta']['version']
-            assert f'EMBEDDED_OPENSTA_VERSION {sta_version}' in timing, timing
-            assert re.search(r'(?m)^Total\s+', timing), timing
+            if not openroad_available:
+                print('SKIP sta-timing-power, openroad-placement, openroad-database-reload '
+                      '(OpenROAD not in this image)', flush=True)
+            else:
+                (project / 'timing.tcl').write_text(TIMING)
+                timing = run('sta-timing-power', [bin_dir / 'sta', '-no_init', '-no_splash', '-exit', 'timing.tcl'])
+                assert not re.search(r'(?m)^(?:Error:|\[ERROR)', timing), timing
+                assert 'STA_SMOKE_PASS' in timing and 'Startpoint:' in timing, timing
+                sta_version = json.loads((ROOT / 'config/tools/openroad-install.json').read_text())['embedded_opensta']['version']
+                assert f'EMBEDDED_OPENSTA_VERSION {sta_version}' in timing, timing
+                assert re.search(r'(?m)^Total\s+', timing), timing
 
-            (project / 'place.tcl').write_text('''set tech_lef $::env(NANGATE45_TECH_LEF)
+                (project / 'place.tcl').write_text('''set tech_lef $::env(NANGATE45_TECH_LEF)
 set cells_lef $::env(NANGATE45_CELLS_LEF)
 set liberty $::env(NANGATE45_LIBERTY)
 set input_netlist mapped.v
 set design_top docker_add
 ''' + (ROOT / 'tests/smoke/openroad.tcl').read_text())
-            placement = run('openroad-placement', [bin_dir / 'openroad', '-no_init',
-                            '-exit', '-threads', '2', 'place.tcl'])
-            assert not re.search(r'(?m)^(?:Error:|\[ERROR)', placement), placement
-            assert 'OPENROAD_PLACEMENT_PASS' in placement, placement
-            assert 'END DESIGN' in (project / 'placed.def').read_text()
-            assert (project / 'placed.odb').stat().st_size > 0
-            (project / 'reload.tcl').write_text('''read_db placed.odb
+                placement = run('openroad-placement', [bin_dir / 'openroad', '-no_init',
+                                '-exit', '-threads', '2', 'place.tcl'])
+                assert not re.search(r'(?m)^(?:Error:|\[ERROR)', placement), placement
+                assert 'OPENROAD_PLACEMENT_PASS' in placement, placement
+                assert 'END DESIGN' in (project / 'placed.def').read_text()
+                assert (project / 'placed.odb').stat().st_size > 0
+                (project / 'reload.tcl').write_text('''read_db placed.odb
 set block [ord::get_db_block]
 if {[$block getName] ne "docker_add"} { error "Wrong block after reload" }
 if {[llength [$block getInsts]] == 0} { error "Empty database after reload" }
 check_placement -verbose
 puts OPENROAD_RELOAD_PASS
 ''')
-            reloaded = run('openroad-database-reload', [bin_dir / 'openroad', '-no_init',
-                           '-exit', '-threads', '2', 'reload.tcl'])
-            assert not re.search(r'(?m)^(?:Error:|\[ERROR)', reloaded), reloaded
-            assert 'OPENROAD_RELOAD_PASS' in reloaded, reloaded
+                reloaded = run('openroad-database-reload', [bin_dir / 'openroad', '-no_init',
+                               '-exit', '-threads', '2', 'reload.tcl'])
+                assert not re.search(r'(?m)^(?:Error:|\[ERROR)', reloaded), reloaded
+                assert 'OPENROAD_RELOAD_PASS' in reloaded, reloaded
 
             stdin_result = run('stdin-and-exit-status', [bin_dir / 'eda', 'bash', '-c', 'cat\nexit 23'],
                                stdin='wrapper stdin test\n', expected=23)

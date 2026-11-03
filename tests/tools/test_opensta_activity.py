@@ -11,6 +11,15 @@ ROOT = Path(__file__).resolve().parents[2]
 ANALYZER = ROOT / "docker/bin/openroad"
 STA_VERSION = json.loads((ROOT / "config/tools/openroad-install.json").read_text())["embedded_opensta"]["version"]
 
+
+def openroad_available():
+    """True when the selected image ships OpenROAD (images built with OPENROAD_ENABLED=OFF omit it)."""
+    try:
+        result = subprocess.run([str(ANALYZER), "-version"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
 NETLIST = '''module power_probe(input clk, en, d, output q, z);
   wire gated_clk;
   CLKGATE_X1 gate (.CK(clk), .E(en), .GCK(gated_clk));
@@ -20,6 +29,7 @@ endmodule
 '''
 
 
+@unittest.skipUnless(openroad_available(), "OpenROAD is not present in the selected image")
 class OpenSTAActivityTest(unittest.TestCase):
     def analyze(self, clock_activity):
         scratch = ROOT / "build/tests"

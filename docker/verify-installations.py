@@ -9,6 +9,9 @@ from pathlib import Path
 from runtime_checksums import tree_sha256
 
 ROOT = Path('/opt/eda')
+# OpenROAD (and its embedded OpenSTA) is optional; see OPENROAD_ENABLED in Dockerfile.source.
+# When it is omitted from the image, its binary and runtime tree are absent and its checks are skipped.
+OPENROAD_ENABLED = (ROOT / 'openroad/bin/openroad').is_file()
 
 
 def verify(relative_path, expected):
@@ -20,19 +23,20 @@ def verify(relative_path, expected):
     print(f'Verified {relative_path}')
 
 
-for manifest_name, checks in (
-    ('yosys', (('yosys/bin/yosys', 'binary_sha256'),
-               ('yosys/bin/yosys-abc', 'abc_binary_sha256'))),
-    ('openroad', (('openroad/bin/openroad', 'binary_sha256'),)),
-    ('nangate45', (('nangate45/NangateOpenCellLibrary_typical.lib', 'sha256'),)),
-):
+checks = [('yosys', (('yosys/bin/yosys', 'binary_sha256'),
+                     ('yosys/bin/yosys-abc', 'abc_binary_sha256'))),
+          ('nangate45', (('nangate45/NangateOpenCellLibrary_typical.lib', 'sha256'),))]
+if OPENROAD_ENABLED:
+    checks.insert(1, ('openroad', (('openroad/bin/openroad', 'binary_sha256'),)))
+for manifest_name, entries in checks:
     manifest = json.loads((ROOT / 'manifests' / f'{manifest_name}-install.json').read_text())
-    for filename, key in checks:
+    for filename, key in entries:
         verify(filename, manifest[key])
 
-manifest = json.loads((ROOT / 'manifests/openroad-install.json').read_text())
-if tree_sha256(ROOT / 'openroad') != manifest['runtime_tree_sha256']:
-    raise SystemExit('SHA-256 mismatch: OpenROAD runtime tree')
+if OPENROAD_ENABLED:
+    manifest = json.loads((ROOT / 'manifests/openroad-install.json').read_text())
+    if tree_sha256(ROOT / 'openroad') != manifest['runtime_tree_sha256']:
+        raise SystemExit('SHA-256 mismatch: OpenROAD runtime tree')
 physical = json.loads((ROOT / 'manifests/nangate45-physical-install.json').read_text())
 for filename, expected in physical['files'].items():
     verify('nangate45-physical/' + filename, expected)

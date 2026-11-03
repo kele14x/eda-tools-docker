@@ -45,11 +45,20 @@ ENV HOME=/home/builder ASPECT_TOOLS_TELEMETRY=-all
 
 FROM builder-base AS openroad-fetch
 COPY docker/openroad-parser-eof.patch /opt/build/openroad-parser-eof.patch
+# OpenROAD (and its embedded OpenSTA) is opt-in. It is the only stage that needs the
+# multi-gigabyte OpenROAD source/submodule/Bazel fetch, which is the usual failure point on slow or
+# restricted links, so the default image ships XLS, Yosys, and the ASAP7/Nangate45 libraries only.
+# Pass --build-arg OPENROAD_ENABLED=ON to add the place-and-route and STA tools.
+ARG OPENROAD_ENABLED=OFF
 ARG OPENROAD_GUI=ON
 ARG BAZEL_FETCH_TIMEOUT=1800
 ENV OPENROAD_GUI=$OPENROAD_GUI BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
 RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
-    python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"
+    if [ "$OPENROAD_ENABLED" = ON ]; then \
+      python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"; \
+    else \
+      echo 'OPENROAD_ENABLED=OFF: skipping OpenROAD fetch (no P&R/STA in this image)'; \
+    fi
 
 FROM openroad-fetch AS yosys-fetch
 RUN python3 /opt/build/build-source-tools.py fetch yosys 1
@@ -88,8 +97,13 @@ ENV GIT_NO_LAZY_FETCH=1
 
 FROM prepared AS openroad-build
 ARG BUILD_JOBS=4
+ARG OPENROAD_ENABLED=OFF
 RUN --network=none --mount=type=cache,id=eda-bazel-actions,target=/home/builder/.cache/bazel-disk-cache,uid=1001,gid=1001,sharing=locked \
-    python3 /opt/build/build-source-tools.py build openroad "$BUILD_JOBS" "$OPENROAD_GUI"
+    if [ "$OPENROAD_ENABLED" = ON ]; then \
+      python3 /opt/build/build-source-tools.py build openroad "$BUILD_JOBS" "$OPENROAD_GUI"; \
+    else \
+      echo 'OPENROAD_ENABLED=OFF: skipping OpenROAD build'; \
+    fi
 
 FROM openroad-build AS yosys-build
 ARG BUILD_JOBS=4
@@ -109,6 +123,7 @@ FROM scratch AS runtime
 LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator native toolchain" \
       org.opencontainers.image.description="Native synthesis, simulation, timing, and physical design with ASAP7 and Nangate45" \
       org.opencontainers.image.version="v1-source"
+ARG OPENROAD_ENABLED=OFF
 COPY --from=prepared /opt/runtime-root/ /
 COPY --from=xls-build /opt/eda/ /opt/eda/
 COPY docker/verify-installations.py docker/runtime_checksums.py /opt/eda/
@@ -136,9 +151,12 @@ ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:/usr/local/sbin:
     ASAP7_CLOCK_BUFFERS="BUFx2_ASAP7_75t_R BUFx4_ASAP7_75t_R BUFx8_ASAP7_75t_R" \
     EDA_SMOKE_PLATFORM="asap7"
 RUN --network=none ln -s eda-entrypoint /usr/local/bin/xls \
-    && ln -s /opt/eda/openroad/bin/openroad /usr/local/bin/sta \
+    && if [ "$OPENROAD_ENABLED" = ON ]; then \
+         ln -s /opt/eda/openroad/bin/openroad /usr/local/bin/sta \
+         && sta -version && openroad -version; \
+       fi \
     && python3 /opt/eda/verify-installations.py \
-    && xls interpreter_main --version && yosys -V && sta -version && openroad -version \
+    && xls interpreter_main --version && yosys -V \
     && iverilog -V && vvp -V && verilator --version
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/eda-entrypoint"]

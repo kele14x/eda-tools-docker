@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 OPENROAD = ROOT / "docker/bin/openroad"
 
 
+def openroad_available():
+    """True when the selected image ships OpenROAD (images built with OPENROAD_ENABLED=OFF omit it)."""
+    try:
+        result = subprocess.run([str(OPENROAD), "-version"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+@unittest.skipUnless(openroad_available(), "OpenROAD is not present in the selected image")
 class OpenROADPlacementTest(unittest.TestCase):
     def test_lef_comment_at_eof(self):
         scratch = ROOT / "build/tests"

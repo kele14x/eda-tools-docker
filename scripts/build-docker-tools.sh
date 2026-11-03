@@ -20,6 +20,14 @@ image="${EDA_IMAGE:-$default_image}"
 dependencies_image="${EDA_DEPENDENCIES_IMAGE:-${image}-deps}"
 docker=(docker --context "${EDA_DOCKER_CONTEXT:-orbstack}")
 build_args=(--platform "$platform" --file "$project_dir/docker/Dockerfile.source")
+# OpenROAD/OpenSTA (P&R and timing) is opt-in: it is the only stage that needs the
+# multi-gigabyte OpenROAD fetch, so the default image omits it. Set EDA_OPENROAD_ENABLED=ON to
+# include it. The value must match between the fetch and build phases.
+openroad_enabled="${EDA_OPENROAD_ENABLED:-OFF}"
+case "$openroad_enabled" in
+    ON|OFF) build_args+=(--build-arg "OPENROAD_ENABLED=$openroad_enabled") ;;
+    *) echo "Unsupported EDA_OPENROAD_ENABLED: $openroad_enabled (use ON or OFF)" >&2; exit 2 ;;
+esac
 if [[ "$mode" != build ]]; then
     printf 'FETCH: preparing %s (network enabled)\n' "$dependencies_image" >&2
     "${docker[@]}" build "${build_args[@]}" "$@" \

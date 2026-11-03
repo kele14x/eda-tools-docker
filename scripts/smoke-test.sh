@@ -35,6 +35,14 @@ for tool in interpreter_main ir_converter_main opt_main codegen_main; do
     xls "$tool" --version
 done
 
+# OpenROAD (P&R and STA) is optional; images built with OPENROAD_ENABLED=OFF omit it.
+if command -v openroad >/dev/null 2>&1; then
+    openroad_available=true
+else
+    openroad_available=false
+    echo "OpenROAD not present in this image; skipping placement, routing, and STA checks."
+fi
+
 echo "Running DSLX tests and comparing function results with LLVM JIT"
 xls interpreter_main \
     --compare=jit --lower_to_ir=true --convert_tests=true --seed=42 tests/smoke/simple_add.x
@@ -129,6 +137,10 @@ write_verilog -noattr -noexpr simple_add.mapped.v
 YOSYS
     fi
     yosys -Q -T -l synthesis.log -s synth.ys
+    if [[ "$openroad_available" == false ]]; then
+        echo "Skipping OpenROAD placement, routing, and database reload (not in this image)."
+        exit 0
+    fi
     echo "Placing and routing the adder and its clock tree with OpenROAD"
     openroad -no_init -no_splash -exit -threads 2 \
         "$project_dir/tests/smoke/route-adder.tcl" 2>&1 | tee openroad.log
@@ -142,5 +154,9 @@ YOSYS
     grep -Fxq 'OPENROAD_ROUTED_RELOAD_PASS' routed-reload.log
 )
 
-echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, $platform mapping, placement, and routing"
+if [[ "$openroad_available" == false ]]; then
+    echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, and $platform mapping (OpenROAD P&R/STA skipped)"
+else
+    echo "PASS: XLS tests, Verilog generation, Icarus/Verilator simulation, $platform mapping, placement, and routing"
+fi
 echo "Outputs: $output_dir"
