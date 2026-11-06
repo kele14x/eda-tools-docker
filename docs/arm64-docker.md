@@ -58,7 +58,7 @@ prepared image loaded into its own store before going offline.
 GUI selection, XLS mode, registries, and tool pins are captured during `fetch`:
 
 ```bash
-./scripts/build-docker-tools.sh fetch --build-arg OPENROAD_GUI=OFF
+./scripts/build-docker-tools.sh fetch --build-arg OPENROAD_GUI=ON
 ./scripts/build-docker-tools.sh build
 ```
 
@@ -102,10 +102,13 @@ The checkpoint fixes the architecture, OpenROAD/Yosys pins, GUI settings, and
 Bazel registries; use it only when those inputs are unchanged. Omit
 `XLS_FETCH_BASE_IMAGE` for a normal complete fetch.
 
-OpenROAD includes the Qt/browser viewer by default. A batch-only build is
-available with `--build-arg OPENROAD_GUI=OFF`; that image does not support
-`scripts/view-smoke-test.sh`. OpenROAD uses its pinned Bazel release configuration
-(optimized with ThinLTO), Yosys uses CMake Release, and XLS uses Bazel `opt`.
+OpenROAD builds without the Qt GUI by default (`OPENROAD_GUI=OFF`). This keeps the
+browser viewer working: `-web` is wired up by the non-Qt `makeGui.cpp` stub, so
+`scripts/view-smoke-test.sh` and layout inspection are unaffected. Only the native
+Qt display and `save_image` are unavailable. Pass `--build-arg OPENROAD_GUI=ON` for
+a Qt build; it adds the Qt prebuilts and the ARM64 Qt workarounds. OpenROAD uses its
+pinned Bazel release configuration (optimized with ThinLTO), Yosys uses CMake
+Release, and XLS uses Bazel `opt`.
 
 ## Validate and select the image
 

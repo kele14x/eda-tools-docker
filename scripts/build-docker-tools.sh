@@ -19,15 +19,29 @@ esac
 image="${EDA_IMAGE:-$default_image}"
 dependencies_image="${EDA_DEPENDENCIES_IMAGE:-${image}-deps}"
 docker=(docker --context "${EDA_DOCKER_CONTEXT:-orbstack}")
-build_args=(--platform "$platform" --file "$project_dir/docker/Dockerfile.source")
 # OpenROAD/OpenSTA (P&R and timing) is opt-in: it is the only stage that needs the
 # multi-gigabyte OpenROAD fetch, so the default image omits it. Set EDA_OPENROAD_ENABLED=ON to
 # include it. The value must match between the fetch and build phases.
 openroad_enabled="${EDA_OPENROAD_ENABLED:-OFF}"
 case "$openroad_enabled" in
-    ON|OFF) build_args+=(--build-arg "OPENROAD_ENABLED=$openroad_enabled") ;;
+    ON|OFF) ;;
     *) echo "Unsupported EDA_OPENROAD_ENABLED: $openroad_enabled (use ON or OFF)" >&2; exit 2 ;;
 esac
+# Host-side download seed. BuildKit mounts this read-only so archives prepared ahead of time are
+# copied into the persistent cache mount instead of re-downloaded. The Dockerfile's bind mount
+# requires the named context to exist, but BuildKit transfers it even when OpenROAD is off, so
+# point it at an empty directory then to avoid shipping a multi-hundred-MB downloads tree.
+downloads_dir="${EDA_DOWNLOADS_DIR:-$project_dir/downloads}"
+if [[ "$openroad_enabled" == ON ]]; then
+    mkdir -p "$downloads_dir"
+else
+    # Reused (not mktemp) so repeated default builds do not accumulate empty directories.
+    downloads_dir="$project_dir/build/empty-downloads-context"
+    mkdir -p "$downloads_dir"
+fi
+build_args=(--platform "$platform" --file "$project_dir/docker/Dockerfile.source"
+            --build-context "downloads=$downloads_dir"
+            --build-arg "OPENROAD_ENABLED=$openroad_enabled")
 if [[ "$mode" != build ]]; then
     printf 'FETCH: preparing %s (network enabled)\n' "$dependencies_image" >&2
     "${docker[@]}" build "${build_args[@]}" "$@" \

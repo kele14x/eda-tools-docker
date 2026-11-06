@@ -50,12 +50,39 @@ COPY docker/openroad-parser-eof.patch /opt/build/openroad-parser-eof.patch
 # restricted links, so the default image ships XLS, Yosys, and the ASAP7/Nangate45 libraries only.
 # Pass --build-arg OPENROAD_ENABLED=ON to add the place-and-route and STA tools.
 ARG OPENROAD_ENABLED=OFF
-ARG OPENROAD_GUI=ON
+# The Qt GUI is off by default. The browser viewer (-web) is unaffected: it is wired up by
+# src/gui's non-Qt makeGui.cpp stub, so layout viewing and the smoke-test viewer still work.
+# Only the native Qt display (startGui) and save_image are unavailable. Pass ON to build Qt.
+ARG OPENROAD_GUI=OFF
 ARG BAZEL_FETCH_TIMEOUT=1800
 ENV OPENROAD_GUI=$OPENROAD_GUI BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
+# The host ./downloads directory is mounted read-only as a download seed: any complete archive
+# already there is copied into the persistent cache mount before fetching, so files prepared on
+# another machine (or before a network outage) are reused instead of re-downloaded. BuildKit cannot
+# write back to a named context, so the cache mount stays the authoritative store; ./downloads only
+# seeds it. A seed only replaces a cached file that is missing or incomplete -- never the reverse --
+# so a stale partial left by an interrupted fetch (which download_restarting cannot resume, because
+# codeload ignores Range requests) is overwritten by the complete host copy rather than blocking it.
 RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
+    --mount=type=bind,from=downloads,source=/,target=/downloads-seed,readonly \
     if [ "$OPENROAD_ENABLED" = ON ]; then \
-      python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"; \
+      mkdir -p /var/cache/eda/downloads \
+      && if [ -d /downloads-seed ]; then \
+           echo 'DOWNLOAD SEED: copying prepared archives from ./downloads'; \
+           for seed in /downloads-seed/*.tar.gz; do \
+             [ -f "$seed" ] || continue; \
+             base=$(basename "$seed"); dest="/var/cache/eda/downloads/$base"; \
+             if ! tar -tzf "$seed" >/dev/null 2>&1; then \
+               echo "DOWNLOAD SEED: skip incomplete seed $base"; continue; \
+             fi; \
+             if [ -f "$dest" ] && tar -tzf "$dest" >/dev/null 2>&1; then \
+               echo "DOWNLOAD SEED: keep complete cached $base"; \
+             else \
+               cp -a "$seed" "$dest" && echo "DOWNLOAD SEED: seeded $base"; \
+             fi; \
+           done; \
+         fi \
+      && python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"; \
     else \
       echo 'OPENROAD_ENABLED=OFF: skipping OpenROAD fetch (no P&R/STA in this image)'; \
     fi
