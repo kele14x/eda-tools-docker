@@ -56,13 +56,24 @@ This builds `local/eda-tools:arm64` and gives the same image the compatibility
 tag `local/eda-tools:v1`. The launchers use this image by default without
 environment overrides.
 
+The build has two steps, which the command above runs in order:
+
+1. `./scripts/build-docker-tools.sh fetch` — the only online step. It downloads
+   every input (Ubuntu base, apt packages, sources, Bazel dependencies,
+   libraries) into `downloads/`.
+2. `./scripts/build-docker-tools.sh build` — fully offline (`--network=none`).
+   It uses only `downloads/` and this repository to produce the image.
+
+Keep `downloads/` and you never need step 1 again; network problems can only
+appear in step 1.
+
 `install-docker-tools.sh` places the launchers in `~/.local/bin`, so make sure
 that directory is on `PATH`. In an existing zsh session, run `rehash` after
 installation. Reinstall any older launchers to remove their previous AMD64
 constraint.
 
 The first source build is substantial. See [ARM64 Docker](docs/arm64-docker.md)
-for memory controls, caching, provenance, and image selection.
+for the `downloads/` layout, memory controls, provenance, and image selection.
 
 ### AMD64 (Linux or WSL containers)
 
@@ -75,9 +86,9 @@ EDA_IMAGE=local/eda-tools:amd64 python3 scripts/test-docker-tools.py
 ```
 
 Both architectures compile Yosys inside Docker. XLS builds from
-source on ARM64 and uses the checksum-pinned release on AMD64. Pass
-`--build-arg XLS_INSTALL_MODE=source` to compile XLS on AMD64 too. No host
-tool installations or downloads are required.
+source on ARM64 and uses the checksum-pinned release on AMD64. Set
+`EDA_XLS_INSTALL_MODE=source` to compile XLS on AMD64 too. No host
+tool installations are required.
 
 When using the installed launchers on AMD64, set
 `EDA_IMAGE=local/eda-tools:amd64` in your environment.
@@ -101,9 +112,9 @@ EDA_OPENROAD_ENABLED=ON ./scripts/build-docker-tools.sh fetch --progress=plain
 EDA_OPENROAD_ENABLED=ON ./scripts/build-docker-tools.sh build --progress=plain
 ```
 
-The value must match between phases: the prepared dependency image records
-whether OpenROAD was fetched, and the offline build only compiles what is
-present. When OpenROAD is absent, the `openroad` and `sta` commands are not
+The value must match between steps: `fetch` only downloads OpenROAD when it is
+enabled, and an enabled `build` stops with "rerun fetch" if `downloads/` lacks
+it. When OpenROAD is absent, the `openroad` and `sta` commands are not
 installed. The smoke test and `scripts/test-docker-tools.py` detect the missing
 binary and skip their placement, routing, and STA checks; the OpenROAD and
 OpenSTA tests under `tests/tools/` skip as well.
@@ -153,6 +164,9 @@ Simulator package versions are recorded at build time in
 | `EDA_PROJECT_ROOT` | Current directory | Parent directory to mount; must contain the current directory |
 | `EDA_BUILD_JOBS` | `4` | Parallel compile jobs during the image build |
 | `EDA_OPENROAD_ENABLED` | `OFF` | Set to `ON` to fetch and build OpenROAD/OpenSTA (P&R and timing) |
+| `EDA_OPENROAD_GUI` | `OFF` | Set to `ON` to fetch and build OpenROAD with the Qt GUI |
+| `EDA_XLS_INSTALL_MODE` | `auto` | `source`, or `release` (AMD64 only); `auto` builds source on ARM64 |
+| `EDA_BAZEL_FETCH_TIMEOUT` | `1800` | Seconds allowed for each Bazel dependency fetch |
 | `OPENROAD_VIEWER_PORT` | `8080` | Port for the smoke-test layout viewer |
 
 See [the Docker guide](docs/docker-tools.md) for full usage, sharing, and
@@ -257,8 +271,8 @@ artifacts from a matching smoke test.
 
 The manifests in `config/tools/` describe source/release inputs. Docker
 installs tools and libraries under `/opt/eda/` and writes runtime manifests
-with executable checksums under `/opt/eda/manifests/`. BuildKit caches keep
-downloads and compilation outputs inside Docker; test outputs go to `build/`.
+with executable checksums under `/opt/eda/manifests/`. Build inputs are
+downloaded into `downloads/`; test outputs go to `build/`.
 
 ## Repository layout
 
@@ -266,10 +280,12 @@ downloads and compilation outputs inside Docker; test outputs go to `build/`.
 eda-tools-docker/
 ├── docker/           # Shared source Dockerfile, entrypoint, and launchers
 ├── config/tools/     # Source/release pins, build options, and input checksums
+├── config/apt/       # Ubuntu package lists for the runtime and build stages
 ├── scripts/          # Image build, smoke test/viewer, and launcher installation
 ├── tests/smoke/      # DSLX adder and ASAP7/Nangate45 synthesis/routing fixtures
 ├── tests/tools/      # OpenSTA activity and OpenROAD placement tests
 ├── docs/             # Docker usage and source rebuild instructions
+├── downloads/        # Fetched build inputs; keep to rebuild offline (ignored)
 └── build/            # Test logs and generated artifacts (ignored)
 ```
 

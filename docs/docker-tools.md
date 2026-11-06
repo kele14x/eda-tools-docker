@@ -11,11 +11,13 @@ Yosys 0.69 with slang/ABC and OpenROAD `26Q4-878-g273fa45460` with embedded
 OpenSTA 3.1.0 from pinned sources, and downloads the pinned ASAP7 TT/RVT and
 Nangate45 timing/physical libraries. XLS and its DSLX standard library are built from
 source on ARM64; AMD64 uses the checksum-pinned XLS release by default.
-Pass `--build-arg XLS_INSTALL_MODE=source` to compile XLS on AMD64 too.
-The default build first prepares a local dependency image online, then compiles
-and verifies with Docker networking disabled. Run
+Set `EDA_XLS_INSTALL_MODE=source` to compile XLS on AMD64 too.
+The default build first downloads every input into the project's `downloads/`
+folder (the only online step), then compiles and verifies with Docker
+networking disabled using only that folder. Run
 `./scripts/build-docker-tools.sh fetch` and `./scripts/build-docker-tools.sh build`
-to separate these phases; see [the offline workflow](arm64-docker.md#fetch-online-build-offline).
+to separate these steps; while `downloads/` is kept, `build` never needs the
+network. See [the offline workflow](arm64-docker.md#fetch-online-build-offline).
 The build records executable and OpenROAD tree checksums in runtime
 manifests and verifies them, along with the pinned LEF/RC/license files,
 before completing the image. Host tool installations are not required.
@@ -223,10 +225,10 @@ its tag is `local/eda-tools:amd64`. ARM64 defaults to `local/eda-tools:arm64`.
 Both use the same source Dockerfile and input manifests. To update a tool,
 change its source/release pins in `config/tools/`, build a new image, and
 run the integration tests. Runtime executable checksums are generated
-automatically. The Ubuntu base tag and runtime package versions can receive
-updates between builds; pin a base digest and package snapshot if rebuilds
-must be identical. See the [native build guide](arm64-docker.md) for build
-caching and memory controls.
+automatically. The Ubuntu base filesystem is checksum-pinned, and a kept
+`downloads/` folder reinstalls the same apt packages; a fresh `fetch` can pick
+up newer Ubuntu package updates. See the [native build guide](arm64-docker.md)
+for the `downloads/` layout and memory controls.
 
 To uninstall the Mac launchers, remove `eda`, `xls`, `yosys`, `sta`, `openroad`,
 `iverilog`, `vvp`, and `verilator` from the chosen installation directory.

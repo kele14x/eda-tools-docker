@@ -1,0 +1,8 @@
+{
+  "version": "24.04.5",
+  "url": "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.5/release/ubuntu-base-24.04.5-base-{arch}.tar.gz",
+  "sha256": {
+    "arm64": "a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2",
+    "amd64": "e77b6f10c2590cef872b33ee9f635a0e3fd1f57fb074c0e52b5c7f56147a0c86"
+  }
+}

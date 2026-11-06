@@ -1,8 +1,9 @@
 # OpenROAD toolchain
 
 Both ARM64 and AMD64 build OpenROAD/OpenSTA from pinned sources inside
-`docker/Dockerfile.source`. See [ARM64 Docker](arm64-docker.md) for Apple
-Silicon build caching and memory controls, or [WSL containers](wsl-containers.md)
+`docker/Dockerfile.source`. OpenROAD is opt-in: set `EDA_OPENROAD_ENABLED=ON`
+for both the fetch and build steps. See [ARM64 Docker](arm64-docker.md) for the
+`downloads/` layout and memory controls, or [WSL containers](wsl-containers.md)
 for Windows.
 
 OpenROAD `26Q4-878-g273fa45460` is pinned to upstream commit
@@ -19,7 +20,7 @@ for migrating standalone OpenSTA scripts, including the required LEF inputs.
 From this repository:
 
 ```bash
-./scripts/build-docker-tools.sh
+EDA_OPENROAD_ENABLED=ON ./scripts/build-docker-tools.sh
 python3 scripts/test-docker-tools.py
 ./scripts/install-docker-tools.sh
 openroad -version
@@ -28,7 +29,7 @@ openroad -version
 The build defaults to ARM64. To build and select AMD64 instead:
 
 ```bash
-EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
+EDA_OPENROAD_ENABLED=ON EDA_PLATFORM=linux/amd64 ./scripts/build-docker-tools.sh
 export EDA_IMAGE=local/eda-tools:amd64
 ```
 
@@ -127,8 +128,9 @@ commit. The Liberty file at that revision has the same SHA-256 as this
 repository's existing typical-corner library. The installer and Docker build
 verify that the two installations agree.
 
-The build downloads and verifies the physical files inside Docker and
-installs them at `/opt/eda/nangate45-physical`. Docker sets these variables:
+`fetch` downloads and verifies the physical files into `downloads/common/`;
+the offline build checks them again and installs them at
+`/opt/eda/nangate45-physical`. Docker sets these variables:
 
 | Variable | File |
 | --- | --- |

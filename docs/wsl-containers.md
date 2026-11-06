@@ -1,45 +1,41 @@
 # Windows with WSL containers
 
-Run these commands in PowerShell from the repository root with `wslc` available.
-The build uses the native Linux AMD64 platform on an x64 Windows machine and
-needs no host `tools/` directory or separate WSL distribution.
+Run these commands from the repository root. The build uses the native Linux
+AMD64 platform on an x64 Windows machine and needs no host `tools/` directory.
 
-First fetch all inputs and prepare the dependency image online:
+The image is built in two steps by `scripts/build-docker-tools.sh`: `fetch`
+downloads every input into `downloads/` (host downloads plus several short
+container runs), then `build` runs one `docker build --network=none`. Because
+`fetch` is a sequence of commands rather than a single `wslc build`, run the
+script from a Bash shell (for example a WSL distribution) that has `curl`,
+Python 3, and a Docker CLI, and point `EDA_DOCKER_CONTEXT` at that engine:
 
-```powershell
-wslc build -f docker/Dockerfile.source --target dependencies `
-  --progress plain -t local/eda-tools:amd64-deps .
+```bash
+export EDA_PLATFORM=linux/amd64 EDA_DOCKER_CONTEXT=default
+./scripts/build-docker-tools.sh fetch --progress=plain
+EDA_BUILD_JOBS=2 ./scripts/build-docker-tools.sh build --progress=plain
 ```
 
-Only after that command succeeds, compile and verify offline:
+Keep the repository on the Linux filesystem rather than `/mnt/c` so that
+`downloads/` keeps Unix permissions and case-sensitive names.
 
-```powershell
-wslc build -f docker/Dockerfile.source --network none --pull=false `
-  --build-arg DEPENDENCIES_IMAGE=local/eda-tools:amd64-deps `
-  --build-arg BUILD_JOBS=2 `
-  --progress plain -t local/eda-tools:amd64 .
-```
+Fetching downloads the Ubuntu base, all apt packages, pinned sources/submodules,
+Bazel dependencies, the Linux x64 XLS release, and libraries. The offline step
+builds Yosys/slang/ABC (and OpenROAD/OpenSTA when `EDA_OPENROAD_ENABLED=ON`),
+then installs the prefetched XLS release. Its archive SHA-256 is checked before
+extraction; the image records the release URL, archive checksum, and installed
+executable checksums in `/opt/eda/manifests/xls-install.json`. Every `RUN` in
+the build disables networking. The final image also includes ASAP7, Nangate45,
+Icarus Verilog, and Verilator.
 
-The prepared image must be available in the local builder's image store.
-Fetching prepares pinned sources/submodules, Bazel dependencies, the Linux x64
-XLS release, libraries, and all system/runtime packages. The offline phase
-builds OpenROAD/OpenSTA and Yosys/slang/ABC, then installs the prefetched XLS
-release. Its archive SHA-256 is checked before extraction; the image records
-the release URL, archive checksum, and installed executable checksums in
-`/opt/eda/manifests/xls-install.json`. Every offline `RUN` disables networking.
-The final image also includes ASAP7, Nangate45, Icarus Verilog, and Verilator.
+`EDA_XLS_INSTALL_MODE` defaults to `auto`: AMD64 uses the pinned XLS release,
+while ARM64 compiles XLS and LLVM from source with Bazel. Set it to `source` to
+force a source build, or `release` to explicitly select the AMD64 release.
+Use the same OpenROAD/GUI/XLS settings for both steps; `build` stops with
+"rerun fetch" if `downloads/` was prepared with different ones.
+`EDA_BUILD_JOBS=2` limits compilation parallelism.
 
-`XLS_INSTALL_MODE` defaults to `auto`: AMD64 downloads the pinned XLS release,
-while ARM64 compiles XLS and LLVM from source with Bazel. No XLS mode flag is
-needed for the normal build on either architecture. Add
-`--build-arg XLS_INSTALL_MODE=source` to the fetch command to force a source build,
-or `--build-arg XLS_INSTALL_MODE=release` to explicitly select the AMD64 release.
-Release mode requires AMD64. GUI/XLS options are fixed in the prepared image;
-repeat fetching to change them. `BUILD_JOBS=2` limits compilation parallelism,
-and the offline BuildKit action cache preserves completed Bazel outputs.
-
-The macOS build and launcher scripts select Docker's OrbStack context. Invoke
-`wslc` directly on Windows, for example:
+The resulting image can be run directly with `wslc`, for example:
 
 ```powershell
 wslc run --rm local/eda-tools:amd64 yosys -V

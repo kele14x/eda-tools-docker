@@ -41,12 +41,12 @@ python3 scripts/test-docker-tools.py
 ./docker/bin/yosys -p 'help read_slang'
 ```
 
-`docker/build-source-tools.py` downloads and verifies the official release
-archive, which contains Yosys, ABC, sv-elab, slang, and the other bundled
-libraries. It applies the manifest's CMake options and installs Yosys under
-`/opt/eda/yosys` inside the image. The revision options supply source and
-dependency metadata when building from the archive without Git submodule
-checkouts. Executable checksums are recorded automatically after the build.
+During `fetch`, `docker/build-source-tools.py` checks out the pinned Yosys
+commit with its submodules (ABC, sv-elab, slang, and the other bundled
+libraries), verifies each submodule revision, and packs the tree into
+`downloads/linux-<arch>/yosys.tar`. The offline build verifies that archive,
+applies the manifest's CMake options, and installs Yosys under
+`/opt/eda/yosys` inside the image. Executable checksums are recorded automatically after the build.
 
 The integration flow checks slang array ports with a SAT proof, bundled
 runtime data, ABC technology mapping with Nangate45, and OpenSTA timing/power.

@@ -1,9 +1,9 @@
-# A source build needs no host binaries, downloads, or installed PDK files.
+# Only the build scripts, pins, and the base rootfs; other downloads arrive as named contexts.
 **
 !docker/
 !docker/Dockerfile.source
 !docker/build-source-tools.py
-!docker/install-build-deps.py
+!docker/install-apt-packages.sh
 !docker/install-xls-release.py
 !docker/openroad-parser-eof.patch
 !docker/entrypoint.sh
@@ -12,3 +12,6 @@
 !config/
 !config/tools/
 !config/tools/*.json
+!config/apt/
+!config/apt/*.txt
+!downloads/linux-*/ubuntu-base.tar.gz

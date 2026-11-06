@@ -1,25 +1,44 @@
-# Use the bundled Dockerfile frontend so offline builds do not pull a syntax image.
-ARG DEPENDENCIES_IMAGE=dependencies
-ARG XLS_FETCH_BASE_IMAGE=yosys-fetch
-FROM ubuntu:24.04 AS runtime-base
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates python3 libstdc++6 libgcc-s1 libffi8 libreadline8t64 \
-      libtomlplusplus3t64 tcl8.6 zlib1g libtinfo6 libxml2 \
-      libx11-6 libx11-xcb1 libsm6 libice6 libxcb1 libxcb-cursor0 libxcb-icccm4 \
-      libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render0 \
-      libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 \
-      libxcb-util1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 \
-      libfontconfig1 libxkbcommon0 libxkbcommon-x11-0 \
-    && rm -rf /var/lib/apt/lists/*
+# Use the bundled Dockerfile frontend so the build does not pull a syntax image.
+# Offline build: every input comes from ./downloads, prepared by `scripts/build-docker-tools.sh fetch`
+# and passed in as the `platform` (downloads/linux-<arch>) and `common` (downloads/common) build
+# contexts. No step has network access, so a missing input fails in the first seconds with
+# "rerun fetch" instead of hours into compilation.
+ARG OPENROAD_ENABLED=OFF
+ARG OPENROAD_GUI=OFF
+ARG XLS_INSTALL_MODE=auto
+ARG BUILD_JOBS=4
 
-FROM runtime-base AS builder-base
-COPY docker/install-build-deps.py /opt/build/install-build-deps.py
-RUN DEBIAN_FRONTEND=noninteractive python3 /opt/build/install-build-deps.py \
-    && rm -rf /var/lib/apt/lists/*
-COPY config/tools/ /opt/eda/manifests/
-COPY docker/build-source-tools.py docker/runtime_checksums.py /opt/build/
+FROM scratch AS rootfs
+ARG TARGETARCH
+ADD downloads/linux-${TARGETARCH}/ubuntu-base.tar.gz /
+
+FROM rootfs AS runtime-root
+RUN --network=none \
+    --mount=type=bind,from=platform,source=apt,target=/downloads/apt,rw \
+    --mount=type=bind,source=config/apt,target=/opt/build/apt \
+    --mount=type=bind,source=docker/install-apt-packages.sh,target=/opt/build/install-apt-packages.sh \
+    sh /opt/build/install-apt-packages.sh runtime simulation \
+    && mkdir -p /opt/eda/manifests \
+    && dpkg-query -W iverilog verilator build-essential g++ make perl zlib1g-dev \
+        > /opt/eda/manifests/simulation-packages.txt
+
+FROM rootfs AS builder
+RUN --network=none \
+    --mount=type=bind,from=platform,source=apt,target=/downloads/apt,rw \
+    --mount=type=bind,source=config/apt,target=/opt/build/apt \
+    --mount=type=bind,source=docker/install-apt-packages.sh,target=/opt/build/install-apt-packages.sh \
+    sh /opt/build/install-apt-packages.sh runtime build
+COPY --from=platform --chmod=755 bazelisk /usr/local/bin/bazelisk
+# The fetch container writes into the host's downloads/ as this user, so it mirrors the host UID.
+ARG BUILDER_UID=1001
+ARG BUILDER_GID=1001
+RUN --network=none groupadd --non-unique --gid "$BUILDER_GID" builder \
+    && useradd --non-unique --create-home --uid "$BUILDER_UID" --gid builder builder \
+    && mkdir -p /src /opt/eda \
+    && chown builder:builder /src /opt/eda
+COPY --chown=builder:builder config/tools/ /opt/eda/manifests/
+COPY docker/build-source-tools.py docker/runtime_checksums.py docker/install-xls-release.py \
+     docker/openroad-parser-eof.patch /opt/build/
 # Egress proxies block one of Bazel's two registry endpoints at a time, and which one varies
 # between builds, so search both: the canonical registry first, then its verbatim GitHub mirror.
 # Pass an empty value to use only Bazel's default registry.
@@ -32,127 +51,50 @@ ENV BAZEL_REGISTRY=$BAZEL_REGISTRY
 # restore bazelisk's default release server.
 ARG BAZEL_URL_FORMAT=https://storage.googleapis.com/bazel/%v/release/bazel-%v-%o-%m%e
 ENV BAZELISK_FORMAT_URL=$BAZEL_URL_FORMAT
-ARG TARGETARCH
-RUN --mount=type=cache,id=eda-bootstrap-cache,target=/var/cache/eda,sharing=locked \
-    python3 /opt/build/build-source-tools.py bootstrap "$TARGETARCH" \
-    && useradd --create-home --uid 1001 builder \
-    && mkdir -p /src /opt/eda /var/cache/eda \
-    && chown -R builder:builder /src /opt/eda
-RUN --network=none mkdir -p /var/cache/eda && chown builder:builder /var/cache/eda
+ENV HOME=/home/builder ASPECT_TOOLS_TELEMETRY=-all
 USER builder
 WORKDIR /src
-ENV HOME=/home/builder ASPECT_TOOLS_TELEMETRY=-all
 
-FROM builder-base AS openroad-fetch
-COPY docker/openroad-parser-eof.patch /opt/build/openroad-parser-eof.patch
-# OpenROAD (and its embedded OpenSTA) is opt-in. It is the only stage that needs the
-# multi-gigabyte OpenROAD source/submodule/Bazel fetch, which is the usual failure point on slow or
-# restricted links, so the default image ships XLS, Yosys, and the ASAP7/Nangate45 libraries only.
-# Pass --build-arg OPENROAD_ENABLED=ON to add the place-and-route and STA tools.
-ARG OPENROAD_ENABLED=OFF
-# The Qt GUI is off by default. The browser viewer (-web) is unaffected: it is wired up by
-# src/gui's non-Qt makeGui.cpp stub, so layout viewing and the smoke-test viewer still work.
-# Only the native Qt display (startGui) and save_image are unavailable. Pass ON to build Qt.
-ARG OPENROAD_GUI=OFF
-ARG BAZEL_FETCH_TIMEOUT=1800
-ENV OPENROAD_GUI=$OPENROAD_GUI BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
-# The host ./downloads directory is mounted read-only as a download seed: any complete archive
-# already there is copied into the persistent cache mount before fetching, so files prepared on
-# another machine (or before a network outage) are reused instead of re-downloaded. BuildKit cannot
-# write back to a named context, so the cache mount stays the authoritative store; ./downloads only
-# seeds it. A seed only replaces a cached file that is missing or incomplete -- never the reverse --
-# so a stale partial left by an interrupted fetch (which download_restarting cannot resume, because
-# codeload ignores Range requests) is overwritten by the complete host copy rather than blocking it.
-RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
-    --mount=type=bind,from=downloads,source=/,target=/downloads-seed,readonly \
+FROM builder AS libraries
+ARG OPENROAD_ENABLED
+ARG OPENROAD_GUI
+ARG XLS_INSTALL_MODE
+RUN --network=none \
+    --mount=type=bind,from=platform,target=/downloads/platform \
+    --mount=type=bind,from=common,target=/downloads/common \
+    python3 /opt/build/build-source-tools.py check \
+    && python3 /opt/build/build-source-tools.py build libraries
+
+# OpenROAD (and its embedded OpenSTA) is opt-in: its multi-gigabyte fetch is the usual failure
+# point on slow links, so the default image ships XLS, Yosys, and the ASAP7/Nangate45 libraries.
+FROM libraries AS openroad-build
+ARG BUILD_JOBS
+ARG OPENROAD_ENABLED
+ARG OPENROAD_GUI
+RUN --network=none --mount=type=bind,from=platform,target=/downloads/platform \
     if [ "$OPENROAD_ENABLED" = ON ]; then \
-      mkdir -p /var/cache/eda/downloads \
-      && if [ -d /downloads-seed ]; then \
-           echo 'DOWNLOAD SEED: copying prepared archives from ./downloads'; \
-           for seed in /downloads-seed/*.tar.gz; do \
-             [ -f "$seed" ] || continue; \
-             base=$(basename "$seed"); dest="/var/cache/eda/downloads/$base"; \
-             if ! tar -tzf "$seed" >/dev/null 2>&1; then \
-               echo "DOWNLOAD SEED: skip incomplete seed $base"; continue; \
-             fi; \
-             if [ -f "$dest" ] && tar -tzf "$dest" >/dev/null 2>&1; then \
-               echo "DOWNLOAD SEED: keep complete cached $base"; \
-             else \
-               cp -a "$seed" "$dest" && echo "DOWNLOAD SEED: seeded $base"; \
-             fi; \
-           done; \
-         fi \
-      && python3 /opt/build/build-source-tools.py fetch openroad 1 "$OPENROAD_GUI"; \
-    else \
-      echo 'OPENROAD_ENABLED=OFF: skipping OpenROAD fetch (no P&R/STA in this image)'; \
-    fi
-
-FROM openroad-fetch AS yosys-fetch
-RUN python3 /opt/build/build-source-tools.py fetch yosys 1
-
-FROM ${XLS_FETCH_BASE_IMAGE} AS xls-fetch
-ARG TARGETARCH
-ARG XLS_INSTALL_MODE=auto
-ARG BAZEL_FETCH_TIMEOUT=1800
-ENV BAZEL_FETCH_TIMEOUT=$BAZEL_FETCH_TIMEOUT
-ENV XLS_INSTALL_MODE=$XLS_INSTALL_MODE
-COPY docker/build-source-tools.py docker/runtime_checksums.py /opt/build/
-COPY docker/install-xls-release.py /opt/build/install-xls-release.py
-RUN --mount=type=cache,id=eda-source-cache,target=/var/cache/eda,uid=1001,gid=1001,sharing=locked \
-    case "$XLS_INSTALL_MODE:$TARGETARCH" in \
-      auto:amd64|release:amd64) python3 /opt/build/install-xls-release.py fetch ;; \
-      auto:arm64|source:amd64|source:arm64) python3 /opt/build/build-source-tools.py fetch xls 1 ;; \
-      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release; release requires AMD64)" >&2; exit 2 ;; \
-    esac
-RUN python3 /opt/build/build-source-tools.py libraries
-
-FROM runtime-base AS runtime-packages
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        iverilog verilator build-essential zlib1g-dev \
-    && mkdir -p /opt/eda/manifests \
-    && dpkg-query -W iverilog verilator build-essential g++ make perl zlib1g-dev \
-        > /opt/eda/manifests/simulation-packages.txt \
-    && rm -rf /var/lib/apt/lists/*
-
-FROM xls-fetch AS dependencies
-COPY --from=runtime-packages / /opt/runtime-root/
-
-# Override with a local prepared image to skip every online stage.
-FROM ${DEPENDENCIES_IMAGE} AS prepared
-ENV GIT_NO_LAZY_FETCH=1
-
-FROM prepared AS openroad-build
-ARG BUILD_JOBS=4
-ARG OPENROAD_ENABLED=OFF
-RUN --network=none --mount=type=cache,id=eda-bazel-actions,target=/home/builder/.cache/bazel-disk-cache,uid=1001,gid=1001,sharing=locked \
-    if [ "$OPENROAD_ENABLED" = ON ]; then \
-      python3 /opt/build/build-source-tools.py build openroad "$BUILD_JOBS" "$OPENROAD_GUI"; \
+      python3 /opt/build/build-source-tools.py build openroad "$BUILD_JOBS"; \
     else \
       echo 'OPENROAD_ENABLED=OFF: skipping OpenROAD build'; \
     fi
 
 FROM openroad-build AS yosys-build
-ARG BUILD_JOBS=4
-RUN --network=none python3 /opt/build/build-source-tools.py build yosys "$BUILD_JOBS"
+ARG BUILD_JOBS
+RUN --network=none --mount=type=bind,from=platform,target=/downloads/platform \
+    python3 /opt/build/build-source-tools.py build yosys "$BUILD_JOBS"
 
 FROM yosys-build AS xls-build
-ARG BUILD_JOBS=4
-ARG TARGETARCH
-RUN --network=none --mount=type=cache,id=eda-bazel-actions,target=/home/builder/.cache/bazel-disk-cache,uid=1001,gid=1001,sharing=locked \
-    case "$XLS_INSTALL_MODE:$TARGETARCH" in \
-      auto:amd64|release:amd64) python3 /opt/build/install-xls-release.py install ;; \
-      auto:arm64|source:amd64|source:arm64) python3 /opt/build/build-source-tools.py build xls "$BUILD_JOBS" ;; \
-      *) echo "Unsupported XLS_INSTALL_MODE/TARGETARCH: $XLS_INSTALL_MODE/$TARGETARCH (use auto, source or release; release requires AMD64)" >&2; exit 2 ;; \
-    esac
+ARG BUILD_JOBS
+ARG XLS_INSTALL_MODE
+RUN --network=none --mount=type=bind,from=platform,target=/downloads/platform \
+    python3 /opt/build/build-source-tools.py build xls "$BUILD_JOBS"
 
-FROM scratch AS runtime
+FROM runtime-root AS runtime
 LABEL org.opencontainers.image.title="XLS, Yosys, OpenROAD, Icarus Verilog, and Verilator native toolchain" \
       org.opencontainers.image.description="Native synthesis, simulation, timing, and physical design with ASAP7 and Nangate45" \
       org.opencontainers.image.version="v1-source"
-ARG OPENROAD_ENABLED=OFF
-COPY --from=prepared /opt/runtime-root/ /
-COPY --from=xls-build /opt/eda/ /opt/eda/
+ARG OPENROAD_ENABLED
+COPY --from=xls-build --chown=0:0 /opt/eda/ /opt/eda/
 COPY docker/verify-installations.py docker/runtime_checksums.py /opt/eda/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/eda-entrypoint
 ENV PATH="/opt/eda/xls:/opt/eda/yosys/bin:/opt/eda/openroad/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \

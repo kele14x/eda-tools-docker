@@ -5,9 +5,8 @@ XLS, Yosys/slang/ABC, and OpenROAD/OpenSTA executables run on the Apple
 Silicon CPU without translating AMD64 instructions. It is not a macOS
 binary image. Removing translation may improve routing performance; the
 gain depends on the design, routing stage, thread count, and available RAM.
-Icarus Verilog and Verilator are prepared online as native Ubuntu packages,
-together with the C++ build tools needed for simulation. Their runtime filesystem
-is stored in the dependency image before source compilation starts.
+Icarus Verilog, Verilator, and the C++ build tools needed for simulation are
+native Ubuntu packages, downloaded during `fetch` and installed offline.
 
 Build from this checkout with OrbStack running:
 
@@ -17,95 +16,95 @@ Build from this checkout with OrbStack running:
 
 This creates the default `local/eda-tools:arm64` using `docker/Dockerfile.source`
 and tags the same image as `local/eda-tools:v1` for compatibility. AMD64 uses
-the same Dockerfile. Both builds fetch sources, releases, and checksum-pinned
-ASAP7 and Nangate45 files inside Docker, with no host tool installations required.
+the same Dockerfile. No host tool installations are required beyond Docker,
+`curl`, and Python 3.
 
-The Dockerfile defaults to `XLS_INSTALL_MODE=auto`: ARM64 builds XLS from source,
-while AMD64 downloads the checksum-pinned XLS release. To compile XLS from
-source on AMD64 too, pass `--build-arg XLS_INSTALL_MODE=source`.
+`EDA_XLS_INSTALL_MODE` defaults to `auto`: ARM64 builds XLS from source, while
+AMD64 uses the checksum-pinned XLS release. Set `EDA_XLS_INSTALL_MODE=source`
+to compile XLS from source on AMD64 too (`release` is AMD64 only).
 
-The first build downloads compilers/dependencies and compiles large C++
-projects, including LLVM for XLS. Allow hours and tens of GB of Docker disk
-space, including the prepared sources and resolved Bazel repositories. Four
-compile jobs are the default. Set `EDA_BUILD_JOBS=2` to reduce peak memory use
-or raise it if the VM has sufficient RAM. The tools build sequentially.
+The first build compiles large C++ projects, including LLVM for XLS. Allow
+hours and tens of GB of disk for `downloads/` and Docker. Four compile jobs
+are the default. Set `EDA_BUILD_JOBS=2` to reduce peak memory use or raise it
+if the VM has sufficient RAM. The tools build sequentially.
 
 ## Fetch online, build offline
 
-The default command runs these two phases in order:
+The default command runs two steps in order:
 
 ```bash
 ./scripts/build-docker-tools.sh fetch --progress=plain
 EDA_BUILD_JOBS=2 ./scripts/build-docker-tools.sh build --progress=plain
 ```
 
-`fetch` stops at the Dockerfile's `dependencies` target and saves
-`local/eda-tools:arm64-deps` (AMD64: `local/eda-tools:amd64-deps`). It prepares
-system packages, sources with recursive submodules, patches, Bazelisk and the
-projects' pinned Bazel binaries, target-specific Bazel repositories, XLS release
-archives when selected, and ASAP7/Nangate45 files. It also stores the complete
-runtime filesystem, including simulator packages. It does not compile the EDA
-tools. Bazel dependency rules can still execute setup programs during fetching.
+**Step 1, `fetch`**, is the only step that uses the network. It writes every
+build input into the project's `downloads/` folder and does not compile any
+EDA tool:
 
-`build` requires that local image with the requested architecture and skips all
-online Docker stages. Every compilation, extraction, and final verification
-`RUN` has `--network=none`; Bazel also uses `--nofetch`, with the upstream remote
-action cache disabled. Aspect telemetry is disabled in both phases. There is no
-automatic online fallback. No external Dockerfile frontend is needed. Use Docker's local
-image-store builder, as the wrapper does by default; a remote builder needs the
-prepared image loaded into its own store before going offline.
-
-GUI selection, XLS mode, registries, and tool pins are captured during `fetch`:
-
-```bash
-./scripts/build-docker-tools.sh fetch --build-arg OPENROAD_GUI=ON
-./scripts/build-docker-tools.sh build
+```text
+downloads/
+  linux-arm64/              # one folder per architecture (linux-amd64 on AMD64)
+    ubuntu-base.tar.gz      # checksum-pinned Ubuntu 24.04 root filesystem
+    bazelisk                # checksum-pinned Bazel launcher
+    apt/                    # every Ubuntu .deb plus the apt index
+    yosys.tar, yosys.json   # source with submodules
+    xls.tar, xls.json       # source plus Bazel binary and repositories
+    openroad.tar, ...       # only with EDA_OPENROAD_ENABLED=ON
+    xls-release/            # only when XLS uses the AMD64 release
+  common/                   # ASAP7 and Nangate45 files
+  fetch-cache/              # partial downloads kept for fetch retries
 ```
 
-Repeat `fetch` after changing these inputs or the source-build helper; they are
-not changed by passing new GUI/XLS flags only to `build`. Compilation parallelism
-can change without fetching again. Override `EDA_DEPENDENCIES_IMAGE` to keep
-separate prepared variants. Download caches speed up retries; resolved sources,
-Bazel repositories, and Bazel binaries live in image layers, not disposable
-cache mounts. Only Bazel action outputs use an offline BuildKit cache mount.
-Clearing that cache loses reusable compiled outputs but not the prepared inputs.
+Each `<tool>.json` records the archive's size, SHA-256, and the inputs it was
+prepared from (pins, patch, Bazel registry, GUI setting, architecture). Rerunning
+`fetch` skips anything already complete and matching, and resumes interrupted
+downloads. Fetch runs short-lived containers with `downloads/` bind-mounted and
+removes its temporary `-fetch` images when it finishes or fails; no Docker image
+holds fetched state. Run it as a regular user, not root.
+
+**Step 2, `build`**, needs only `downloads/` and this repository. It refuses to
+start if any input is missing or outdated, then runs a single `docker build`
+with `--network=none --pull=false`; every `RUN` in the Dockerfile also has
+`--network=none`, Bazel uses `--nofetch`, and apt installs with
+`--no-download`. There are no BuildKit cache mounts and no intermediate images
+to keep, so as long as `downloads/` is kept, `build` can be rerun at any time
+without the network. Compilation parallelism can change without fetching again.
+
+OpenROAD, GUI, and XLS settings are environment variables read by both steps,
+so pass the same values to each:
+
+```bash
+EDA_OPENROAD_ENABLED=ON EDA_OPENROAD_GUI=ON ./scripts/build-docker-tools.sh fetch
+EDA_OPENROAD_ENABLED=ON EDA_OPENROAD_GUI=ON ./scripts/build-docker-tools.sh build
+```
+
+If they differ, `build` fails immediately with "rerun fetch" instead of trying
+to download. Repeat `fetch` after changing pins, the apt package lists, or the
+OpenROAD patch; only the affected inputs are downloaded again.
 
 A fetch failure is a download/dependency-resolution problem. An offline failure
-reporting an absent repository, archive, or source is a prefetch-completeness
-problem; compiler/linker errors can then be investigated separately. Network
-isolation alone does not prove an error is in the source code.
+reporting a missing or outdated prefetched input means `fetch` must be rerun;
+any other offline failure is a compiler or build problem, not the network.
 
 Bazel fetching prints its command and inherited options, plus a heartbeat every
 30 seconds even when Bazel itself is silent. A heartbeat means the process is
 alive, not that a download is progressing. Each Bazel fetch has a 1,800-second
 limit, including Bazelisk startup; on timeout its process group is terminated
 (with a 10-second grace period), and downloaded repository-cache entries are
-saved for retry. Failures and timeouts print the last 16 KiB of Bazel's Java log
-when available. Compilation has no fetch timeout. To change the fetch limit:
+saved under `downloads/fetch-cache/` for the next attempt. Failures and timeouts
+print the last 16 KiB of Bazel's Java log when available. To change the limit:
 
 ```bash
-./scripts/build-docker-tools.sh fetch --build-arg BAZEL_FETCH_TIMEOUT=600 --progress=plain
+EDA_BAZEL_FETCH_TIMEOUT=600 ./scripts/build-docker-tools.sh fetch --progress=plain
 ```
 
-For an XLS-only retry after OpenROAD and Yosys fetching succeeded, save the
-completed stage before editing the fetch helper, then reuse that local image:
+Because each tool is packed into `downloads/` as soon as it is fetched, a retry
+after an XLS failure skips the already prepared libraries, Yosys, and OpenROAD.
 
-```bash
-docker --context orbstack build --platform linux/arm64 -f docker/Dockerfile.source \
-  --target yosys-fetch -t local/eda-tools:arm64-fetch-checkpoint .
-./scripts/build-docker-tools.sh all --progress=plain \
-  --build-arg XLS_FETCH_BASE_IMAGE=local/eda-tools:arm64-fetch-checkpoint \
-  --build-arg BAZEL_FETCH_TIMEOUT=600
-```
-
-The checkpoint fixes the architecture, OpenROAD/Yosys pins, GUI settings, and
-Bazel registries; use it only when those inputs are unchanged. Omit
-`XLS_FETCH_BASE_IMAGE` for a normal complete fetch.
-
-OpenROAD builds without the Qt GUI by default (`OPENROAD_GUI=OFF`). This keeps the
+OpenROAD builds without the Qt GUI by default (`EDA_OPENROAD_GUI=OFF`). This keeps the
 browser viewer working: `-web` is wired up by the non-Qt `makeGui.cpp` stub, so
 `scripts/view-smoke-test.sh` and layout inspection are unaffected. Only the native
-Qt display and `save_image` are unavailable. Pass `--build-arg OPENROAD_GUI=ON` for
+Qt display and `save_image` are unavailable. Set `EDA_OPENROAD_GUI=ON` for
 a Qt build; it adds the Qt prebuilts and the ARM64 Qt workarounds. OpenROAD uses its
 pinned Bazel release configuration (optimized with ThinLTO), Yosys uses CMake
 Release, and XLS uses Bazel `opt`.
@@ -152,8 +151,11 @@ Source builds generate their own `/opt/eda/manifests/*-install.json` inside
 the image, recording native executable hashes, build options, and source
 identities. The repository manifests describe build inputs; the image's
 output hashes describe this build and are not prepublished upstream checksums.
-Ubuntu apt dependencies are resolved at build time, so the build is pinned
-at the tool-source level rather than bit-for-bit reproducible.
+The Ubuntu base filesystem is checksum-pinned; apt packages are resolved during
+`fetch` and the offline build installs exactly those files, so a kept
+`downloads/` folder rebuilds the same package set. A fresh `fetch` may pick up
+newer Ubuntu updates, so the image is pinned at the tool-source level rather
+than bit-for-bit reproducible.
 Simulator and C++ toolchain package versions are recorded separately in
 `/opt/eda/manifests/simulation-packages.txt` inside the image.
 
