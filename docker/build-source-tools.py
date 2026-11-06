@@ -17,7 +17,7 @@ from runtime_checksums import file_sha256, tree_sha256
 
 ROOT = Path('/opt/eda')
 MANIFESTS = ROOT / 'manifests'
-# Abort a transfer that stays below 1 KiB/s for a minute so retries can resume it.
+# Abort a transfer that stays below 1 KiB/s for a minute so retries can restart it.
 STALL_ARGS = ('--speed-limit', '1024', '--speed-time', '60')
 DOWNLOAD_CACHE = Path('/var/cache/eda/downloads')
 DISTDIR = Path('/home/builder/.cache/distdir')
@@ -108,30 +108,43 @@ def is_complete_tarball(path):
         return False
 
 
-def download_resumable(url, destination):
-    """Download an archive without a pinned checksum, resuming across stalls and rebuilds.
+def download_restarting(url, destination):
+    """Download an archive without a pinned checksum, restarting across stalls and rebuilds.
 
     A stalled chunked response never terminates, so abort on low throughput and let the next
-    attempt resume from the cached partial file instead of hanging forever.
+    attempt restart the transfer instead of hanging forever.
+
+    Restarting rather than resuming because the only caller is GitHub's codeload archive endpoint,
+    which ignores Range requests -- it answers 200 rather than 206 and sends no accept-ranges
+    header -- so `curl -C -` against a cached partial fails outright with exit 56 ("server doesn't
+    seem to support byte ranges"), exhausting every retry without transferring a byte.
+
+    Each attempt writes to a sibling temporary file that is renamed onto destination only once
+    it validates as a complete tarball. A half-finished transfer therefore can never be mistaken
+    for a finished archive by the next build, which is what `curl --output destination` allowed.
     """
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if is_complete_tarball(destination):
         return
+    partial = destination.with_name(destination.name + '.partial')
     for attempt in range(1, 11):
         try:
             run('curl', '--fail', '--location', '--connect-timeout', '20',
-                '--retry', '5', '--retry-all-errors', '-C', '-', *STALL_ARGS,
-                '--output', destination, url)
+                '--retry', '5', '--retry-all-errors', *STALL_ARGS,
+                '--output', partial, url)
         except subprocess.CalledProcessError:
-            # A resumed request for an already-complete body can report a 416.
-            if is_complete_tarball(destination):
-                return
-            if attempt == 10:
-                raise
-            continue
-        if is_complete_tarball(destination):
-            return
+            # A transfer aborted mid-body leaves the tail missing, but one that completed just
+            # before curl gave up (e.g. a stall on the trailing read) is still usable.
+            if not is_complete_tarball(partial):
+                if attempt == 10:
+                    raise
+                continue
+        else:
+            if not is_complete_tarball(partial):
+                continue
+        partial.replace(destination)
+        return
     raise SystemExit(f'Incomplete download for {url}')
 
 
@@ -162,14 +175,14 @@ def checkout(tool, info, commit):
 def openroad_source(info, commit):
     """Bootstrap an OpenROAD source tree from GitHub's archive, then point HEAD at the pinned commit.
 
-    A shallow clone of OpenROAD produces a ~1.4 GB pack that this link drops after ~20 minutes. The
-    archive is a resumable single file, and the blobless fetch below pulls only the commit and its
-    trees -- a few MB, and enough for `submodule update` to read the gitlinks out of the index. The
-    blobs are never fetched: the archive already supplied them.
+    A shallow clone of OpenROAD produces a ~1.4 GB pack in a single non-resumable transfer. The
+    archive is roughly a quarter of that (~330 MB at this pin) and the blobless fetch below pulls
+    only the commit and its trees -- a few MB, and enough for `submodule update` to read the
+    gitlinks out of the index. The blobs are never fetched: the archive already supplied them.
     """
     source = Path('/src/openroad')
     archive = DOWNLOAD_CACHE / f'openroad-{commit}.tar.gz'
-    download_resumable(f'{info["repository"]}/archive/{commit}.tar.gz', archive)
+    download_restarting(f'{info["repository"]}/archive/{commit}.tar.gz', archive)
     source.mkdir(parents=True, exist_ok=True)
     run('tar', '-xzf', archive, '-C', source, '--strip-components=1',
         '--no-same-owner', '--no-same-permissions')

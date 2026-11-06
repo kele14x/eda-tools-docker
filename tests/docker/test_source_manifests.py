@@ -90,24 +90,57 @@ class SourceDownloadTest(unittest.TestCase):
 
     def test_reuses_only_a_complete_archive(self):
         with mock.patch.object(BUILDER, 'run') as run:
-            BUILDER.download_resumable('https://example.invalid/source.tar.gz', self.archive)
+            BUILDER.download_restarting('https://example.invalid/source.tar.gz', self.archive)
         run.assert_not_called()
 
-    def test_resumes_truncated_archives_after_a_failed_transfer(self):
+    def test_restarts_truncated_archives_after_a_failed_transfer(self):
         self.archive.write_bytes(self.complete[:-8])
+        partial = self.archive.with_name(self.archive.name + '.partial')
         attempts = []
 
         def transfer(*args):
             attempts.append(args)
             if len(attempts) == 1:
                 raise BUILDER.subprocess.CalledProcessError(18, args)
-            self.archive.write_bytes(self.complete)
+            partial.write_bytes(self.complete)
 
         with mock.patch.object(BUILDER, 'run', side_effect=transfer):
-            BUILDER.download_resumable('https://example.invalid/source.tar.gz', self.archive)
+            BUILDER.download_restarting('https://example.invalid/source.tar.gz', self.archive)
         self.assertEqual(len(attempts), 2)
-        self.assertTrue(all('-C' in args for args in attempts))
         self.assertTrue(BUILDER.is_complete_tarball(self.archive))
+        self.assertFalse(partial.exists())
+
+    def test_never_asks_the_server_for_a_byte_range(self):
+        """codeload answers Range with 200, so -C - would fail every retry with exit 56."""
+        self.archive.write_bytes(self.complete[:-8])
+        partial = self.archive.with_name(self.archive.name + '.partial')
+        attempts = []
+
+        def transfer(*args):
+            attempts.append(args)
+            partial.write_bytes(self.complete)
+
+        with mock.patch.object(BUILDER, 'run', side_effect=transfer):
+            BUILDER.download_restarting('https://example.invalid/source.tar.gz', self.archive)
+        for args in attempts:
+            self.assertNotIn('-C', args)
+            self.assertNotIn('--continue-at', args)
+
+    def test_does_not_publish_an_incomplete_transfer_as_the_archive(self):
+        """A stalled body must leave no destination behind, only an ignored .partial file."""
+        self.archive.unlink()
+        partial = self.archive.with_name(self.archive.name + '.partial')
+        self.assertFalse(self.archive.exists())
+
+        def transfer(*args):
+            partial.write_bytes(self.complete[:-8])
+            raise BUILDER.subprocess.CalledProcessError(28, args)
+
+        with mock.patch.object(BUILDER, 'run', side_effect=transfer), \
+             self.assertRaises(BUILDER.subprocess.CalledProcessError):
+            BUILDER.download_restarting('https://example.invalid/source.tar.gz', self.archive)
+        self.assertFalse(self.archive.exists())
+        self.assertTrue(partial.exists())
 
 
 class OfflineSourceBuildTest(unittest.TestCase):
